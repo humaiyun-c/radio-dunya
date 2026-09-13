@@ -1,4 +1,4 @@
-import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
+import { isExcludedStation } from './catalog-policy.js?v=live-streams-1';
 
 // Source: radio-directory.js:54 - keep the existing normalized station contract.
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -1,9 +1,9 @@
 import { createGlobe } from './globe.js?v=gulf-local-1';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=gulf-local-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=live-streams-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=gulf-local-1';
+import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=live-streams-1';
 import { cleanStreamUrl } from './stream-url.js?v=clean-streams-1';
-import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
+import { isExcludedStation } from './catalog-policy.js?v=live-streams-1';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');

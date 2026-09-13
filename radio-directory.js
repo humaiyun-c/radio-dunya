@@ -1,4 +1,4 @@
-import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
+import { isExcludedStation } from './catalog-policy.js?v=live-streams-1';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const mirrorName = /^[a-z0-9-]+\.api\.radio-browser\.info$/;
