@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=progressive-dots-1';
+import { createGlobe } from './globe.js?v=all-dots-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=progressive-dots-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=progressive-dots-1';
@@ -186,7 +186,6 @@ function moveNearby(direction) {
 }
 const globe = createGlobe($('globe'), {
   onBackgroundTap: () => setChromeHidden(!chromeHidden),
-  onCluster: () => setChromeHidden(false),
   onSelect: (station, {expanded = false, stations:members} = {}) => {
     setChromeHidden(false);
     const key=locationKey(station), group=members || pinGroups.get(key);
@@ -198,7 +197,7 @@ const globe = createGlobe($('globe'), {
   },
   onViewChange: (view) => {
     center = view;
-    $('map-instructions').textContent=view.zoom>5?'Zoom into a cluster. Tap a dot to listen.':'Drag to explore. Pick a station to listen.';
+    $('map-instructions').textContent=view.zoom>5?'Zoom closer. Tap a dot to listen.':'Drag to explore. Pick a station to listen.';
     const latitude=`${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'South':'North'}`;
     const longitude=`${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'West':'East'}`;
     $('coordinates').textContent = `${latitude} · ${longitude}`;
