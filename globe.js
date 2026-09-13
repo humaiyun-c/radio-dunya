@@ -1,12 +1,20 @@
 // D3's orthographic projection and Canvas path contracts:
 // https://d3js.org/d3-geo/projection and https://d3js.org/d3-geo/path
-// This module redraws only after input, resize, or a data change.
+// This module redraws after input/data changes and during a brief release spring.
 
 import { getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
 const MAX_ZOOM = 54;
+// Apple recommends direct manipulation and gives 80% damping for momentum gestures:
+// https://developer.apple.com/videos/play/wwdc2018/803/
+// Response and travel below are tuned for this globe, not prescribed Apple values.
+const RELEASE_DAMPING = 0.8;
+const RELEASE_RESPONSE = 0.4;
+const RELEASE_PROJECTION = 0.12;
+// This spring peaks at 1.0196 times its projected travel; leave a little margin.
+const RELEASE_PEAK = 1.03;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
 const locationKey = location => `${location.lat},${location.lon}`;
@@ -28,6 +36,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   const path = d3.geoPath(projection, context);
   const graticule = d3.geoGraticule().step([30, 30])();
   const pointers = new Map();
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const previousTouchAction = canvas.style.touchAction;
   const previousCursor = canvas.style.cursor;
   canvas.style.touchAction = 'none';
@@ -50,6 +59,77 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let selected = null;
   let hovered = null;
   let gesture = null;
+  let release = null;
+
+  function stopRelease() {
+    release = null;
+  }
+
+  // Exact damped-spring solution: stable at 60/120 Hz and after a delayed frame.
+  function springAxis(start, target, velocity, elapsed) {
+    const omega = 2 * Math.PI / RELEASE_RESPONSE;
+    const decay = RELEASE_DAMPING * omega;
+    const frequency = omega * Math.sqrt(1 - RELEASE_DAMPING ** 2);
+    const offset = start - target;
+    const sine = (velocity + decay * offset) / frequency;
+    const envelope = Math.exp(-decay * elapsed);
+    const cos = Math.cos(frequency * elapsed);
+    const sin = Math.sin(frequency * elapsed);
+    const displacement = offset * cos + sine * sin;
+    return {
+      position: target + envelope * displacement,
+      velocity: envelope * ((sine * frequency - decay * offset) * cos
+        - (offset * frequency + decay * sine) * sin),
+    };
+  }
+
+  function advanceRelease(now) {
+    if (!release) return;
+    const elapsed = Math.max(0, (now - release.started) / 1000);
+    const lon = springAxis(release.from.lon, release.to.lon, release.velocity.lon, elapsed);
+    const lat = springAxis(release.from.lat, release.to.lat, release.velocity.lat, elapsed);
+    const atRest = Math.hypot(lon.position - release.to.lon, lat.position - release.to.lat) < release.pixelAngle * 0.1
+      && Math.hypot(lon.velocity, lat.velocity) < release.pixelAngle * 0.4;
+    view.lon = wrapLongitude(atRest ? release.to.lon : lon.position);
+    view.lat = clamp(atRest ? release.to.lat : lat.position, -89.5, 89.5);
+    viewChanged = true;
+    if (atRest || elapsed >= 1.2) {
+      view = { lon: wrapLongitude(release.to.lon), lat: release.to.lat };
+      stopRelease();
+    }
+  }
+
+  function beginRelease(event, finishedGesture) {
+    if (reducedMotion.matches || document.hidden || !finishedGesture?.moved) return;
+    const samples = finishedGesture.samples.filter(sample => event.timeStamp - sample.time <= 100);
+    if (samples.length < 2) return;
+    const first = samples[0], last = samples[samples.length - 1];
+    const seconds = (event.timeStamp - first.time) / 1000;
+    if (seconds <= 0 || event.timeStamp - last.time > 70) return;
+    const pixelsPerDegree = radius * RADIANS;
+    let lon = (last.lon - first.lon) / seconds;
+    let lat = (last.lat - first.lat) / seconds;
+    const speed = Math.hypot(lon, lat) * pixelsPerDegree;
+    if (speed < 18) return;
+    // Bound travel in screen pixels so a flick stays local even at maximum zoom.
+    const maxTravel = Math.min(100, width * 0.2, height * 0.15);
+    const scale = Math.min(1, maxTravel / (speed * RELEASE_PROJECTION * RELEASE_PEAK));
+    lon *= scale;
+    lat *= scale;
+    // Keep both target and inherited velocity inside the pole boundary, including
+    // the small overshoot. This avoids clipping a spring then bouncing off a pole.
+    if (lat) {
+      const direction = Math.sign(lat);
+      const available = 89.5 - direction * view.lat;
+      lat = direction * Math.min(Math.abs(lat), available / (RELEASE_PROJECTION * RELEASE_PEAK));
+    }
+    release = {
+      from: { ...view },
+      to: { lon: view.lon + lon * RELEASE_PROJECTION, lat: clamp(view.lat + lat * RELEASE_PROJECTION, -89.5, 89.5) },
+      velocity: { lon, lat }, pixelAngle: 1 / pixelsPerDegree, started: performance.now(),
+    };
+    invalidate(true);
+  }
 
   function invalidate(changedView = false) {
     if (destroyed) return;
@@ -90,9 +170,10 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     return { station, x: point[0], y: point[1] };
   }
 
-  function draw() {
+  function draw(now) {
     frame = 0;
     if (destroyed) return;
+    advanceRelease(now);
     const bounds = canvas.getBoundingClientRect();
     width = Math.max(1, bounds.width);
     height = Math.max(1, bounds.height);
@@ -138,7 +219,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       context.stroke();
     }
 
-    // One atmospheric ring; no texture downloads, shaders, or animation loop.
+    // One atmospheric ring; no texture downloads or shaders.
     context.beginPath();
     circle(width / 2, height / 2, radius + 5);
     context.strokeStyle = palette.line;
@@ -180,6 +261,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       viewChanged = false;
       onViewChange({ ...view, zoom, maxZoom: MAX_ZOOM });
     }
+    if (release) invalidate(true);
   }
 
   function localPoint(event) {
@@ -221,7 +303,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     invalidate();
   }
 
-  function startGesture(moved = false) {
+  function startGesture(moved = false, time = performance.now()) {
     const points = [...pointers.values()];
     if (!points.length) {
       gesture = null;
@@ -234,6 +316,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       zoom,
       distance: points.length > 1 ? Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) : 0,
       moved: moved || points.length > 1,
+      samples: [{ ...view, time }],
     };
   }
 
@@ -242,9 +325,10 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (event.button !== 0) return;
     const point = localPoint(event);
     if (!insideSphere(point) && !hitTest(point, 0)) return;
+    stopRelease();
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, point);
-    startGesture(pointers.size > 1);
+    startGesture(pointers.size > 1, event.timeStamp);
     hover(null);
     canvas.style.cursor = 'grabbing';
   }
@@ -271,17 +355,23 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (Math.hypot(dx, dy) > 5) gesture.moved = true;
     if (!gesture.moved) return;
     const sensitivity = 75 / radius;
-    view.lon = wrapLongitude(gesture.view.lon - dx * sensitivity);
+    const longitude = gesture.view.lon - dx * sensitivity;
+    view.lon = wrapLongitude(longitude);
     view.lat = clamp(gesture.view.lat + dy * sensitivity, -89.5, 89.5);
+    gesture.samples.push({ lon: longitude, lat: view.lat, time: event.timeStamp });
+    gesture.samples = gesture.samples.filter(sample => event.timeStamp - sample.time <= 100);
     invalidate(true);
   }
 
   function pointerEnd(event) {
     if (!pointers.has(event.pointerId)) return;
     const shouldSelect = event.type === 'pointerup' && pointers.size === 1 && !gesture?.moved;
+    const finishedGesture = gesture;
+    const shouldRelease = event.type === 'pointerup' && pointers.size === 1;
     pointers.delete(event.pointerId);
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-    startGesture(true);
+    startGesture(true, event.timeStamp);
+    if (shouldRelease) beginRelease(event, finishedGesture);
     canvas.style.cursor = pointers.size ? 'grabbing' : 'grab';
     if (shouldSelect) {
       const station = hitTest(localPoint(event), event.pointerType === 'touch' ? 10 : 7);
@@ -291,6 +381,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   function zoomBy(factor) {
     if (!Number.isFinite(factor) || factor <= 0) return;
+    stopRelease();
     zoom = clamp(zoom * factor, 0.8, MAX_ZOOM);
     hover(null);
     invalidate(true);
@@ -298,6 +389,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   function keyDown(event) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_', 'Home', 'Enter', ' '].includes(event.key)) stopRelease();
     const step = (event.shiftKey ? 15 : 6) / zoom;
     if (event.key === 'ArrowLeft') view.lon = wrapLongitude(view.lon - step);
     else if (event.key === 'ArrowRight') view.lon = wrapLongitude(view.lon + step);
@@ -325,6 +417,12 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   listen('pointerleave', () => { if (!pointers.size) hover(null); });
   listen('keydown', keyDown);
   listen('blur', () => canvas.classList.remove('keyboard-focus'));
+  reducedMotion.addEventListener('change', () => {
+    if (reducedMotion.matches) stopRelease();
+  }, { signal: lifetime.signal });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopRelease();
+  }, { signal: lifetime.signal });
   document.addEventListener('keydown', event => {
     if (event.key === 'Tab') canvas.classList.add('keyboard-focus');
   }, { signal: lifetime.signal });
@@ -384,18 +482,21 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     focusStation(station) {
       const location = getMapLocation(station);
       if (!location) return;
+      stopRelease();
       view = { lat: clamp(location.lat, -89.5, 89.5), lon: wrapLongitude(location.lon) };
       hover(null);
       invalidate(true);
     },
     zoomBy,
     reset() {
+      stopRelease();
       view = { ...INITIAL_VIEW };
       zoom = 1;
       hover(null);
       invalidate(true);
     },
     destroy() {
+      stopRelease();
       destroyed = true;
       lifetime.abort();
       resizeObserver.disconnect();

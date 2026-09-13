@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=glass-player-1';
+import { createGlobe } from './globe.js?v=elastic-globe-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
@@ -42,30 +42,6 @@ stationDrawer.addEventListener('click',event=>{
   const bounds=stationDrawer.getBoundingClientRect();
   if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom) closeStations();
 });
-function setImmersive(active) {
-  document.body.classList.toggle('immersive',active);
-  $('fullscreen-toggle').setAttribute('aria-pressed',String(active));
-  $('fullscreen-toggle').setAttribute('aria-label',active?'Restore view':'Expand globe');
-  $('fullscreen-toggle').title=active?'Restore view':'Expand globe';
-  $('fullscreen-icon').setAttribute('href',active?'#i-contract':'#i-expand');
-}
-$('fullscreen-toggle').addEventListener('click',async()=>{
-  if(document.body.classList.contains('immersive')) {
-    setImmersive(false);
-    if(document.fullscreenElement) { try {await document.exitFullscreen();} catch {} }
-  } else {
-    setImmersive(true);
-    // Native fullscreen is optional; the expanded layout also works on iPhone browsers.
-    if(document.fullscreenEnabled && document.documentElement.requestFullscreen) {
-      try {await document.documentElement.requestFullscreen();} catch { /* Keep the expanded viewport. */ }
-    }
-  }
-});
-document.addEventListener('fullscreenchange',()=>setImmersive(Boolean(document.fullscreenElement)));
-document.addEventListener('keydown',event=>{
-  if(event.key==='Escape'&&!stationDrawer.open&&!$('about-dialog').open&&!document.fullscreenElement) setImmersive(false);
-});
-
 function persist() {
   try { localStorage.setItem(storeKey, JSON.stringify({favorites:[...favorites.values()], recent, volume:audio.volume})); }
   catch { showNotice('Browser storage is unavailable. Favorites will last for this visit.'); }
