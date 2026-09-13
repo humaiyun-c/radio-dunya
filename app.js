@@ -1,6 +1,6 @@
-import { createGlobe } from './globe.js?v=place-names-1';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=place-names-1';
-import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=place-names-1';
+import { createGlobe } from './globe.js?v=plain-pins-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=plain-pins-1';
+import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=plain-pins-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
 
 const $ = (id) => document.getElementById(id);
@@ -184,7 +184,7 @@ function render() {
   if(placeScope) filtered=filtered.filter(s=>locationKey(s)===placeScope.key);
   pinGroups=new Map();
   for(const s of filtered){const key=locationKey(s);if(!key)continue;if(!pinGroups.has(key))pinGroups.set(key,[]);pinGroups.get(key).push(s);}
-  $('map-summary').textContent=filtered.length?`${filtered.length.toLocaleString()} stations at ${pinGroups.size.toLocaleString()} map ${pinGroups.size===1?'location':'locations'}. Numbers on the map show stations sharing a location.`:'';
+  $('map-summary').textContent=filtered.length?`${filtered.length.toLocaleString()} stations at ${pinGroups.size.toLocaleString()} map ${pinGroups.size===1?'location':'locations'}.`:'';
   $('map-summary').hidden=!filtered.length;
   if (near&&tab==='explore') filtered.sort((a,b)=>distance(a,near)-distance(b,near));
   $('list-title').textContent = placeScope ? `Stations in ${placeScope.label}` : tab==='favorites' ? 'Your favorite stations' : tab==='recent' ? 'Recently heard' : near ? 'Around this view' : talk ? 'Voices around the world' : 'Across the dial';
