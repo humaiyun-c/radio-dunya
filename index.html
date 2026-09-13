@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#14344b">
+  <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
+  <title>Radio Dunya</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="vendor/d3-array.min.js"></script>
+  <script defer src="vendor/d3-geo.min.js"></script>
+  <script defer src="vendor/topojson-client.min.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-world" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7h14M5 17h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-random" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3M17 14l4 4-4 4M3 18h3c2 0 3-2 4-4M14 9c1-2 2-3 4-3h3M17 2l4 4-4 4"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></symbol>
+    <symbol id="i-contract" viewBox="0 0 24 24"><path d="M3 8h5V3M21 8h-5V3M8 21v-5H3M16 21v-5h5"/></symbol>
+  </defs></svg>
+
+  <header class="masthead">
+    <a class="brand" href="./" aria-label="Radio Dunya home"><svg class="icon brand-icon"><use href="#i-world"/></svg><span>Radio Dunya</span></a>
+    <div class="header-actions">
+      <button id="stations-open" class="stations-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="station-drawer"><svg class="icon"><use href="#i-search"/></svg><span>Stations</span></button>
+      <button id="fullscreen-toggle" class="fullscreen-toggle" aria-label="Expand globe" title="Expand globe" aria-pressed="false"><svg class="icon"><use id="fullscreen-icon" href="#i-expand"/></svg></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <dialog id="station-drawer" class="station-drawer" aria-label="Station browser">
+    <div class="library">
+      <div class="drawer-heading"><h2>Stations</h2><button class="about-button" id="about-open" aria-label="About Radio Dunya">About</button><button id="stations-close" class="icon-button" aria-label="Close station browser" autofocus><svg class="icon"><use href="#i-close"/></svg></button></div>
+      <div class="library-top">
+        <div class="tabs" role="tablist" aria-label="Station collections">
+          <button id="tab-explore" class="tab active" role="tab" aria-selected="true" aria-controls="collection" data-tab="explore">Explore</button>
+          <button id="tab-favorites" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="favorites">Favorites <span id="favorite-count">0</span></button>
+          <button id="tab-recent" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="recent">Recent</button>
+        </div>
+        <label class="search-field"><svg class="icon"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Station, country, or language" aria-label="Search stations" autocomplete="off" spellcheck="false"></label>
+        <div class="filters">
+          <select id="country" aria-label="Filter by country"><option value="">Every country</option></select>
+          <select id="genre" aria-label="Filter by genre"><option value="">Every genre</option><option>Jazz</option><option>Classical</option><option>Rock</option><option>Pop</option><option>Electronic</option><option>Folk</option><option>News</option><option>Talk</option></select>
+        </div>
+      </div>
+      <section id="collection" class="collection" role="tabpanel" aria-labelledby="tab-explore">
+        <div class="list-heading"><h1 id="list-title">Across the dial</h1><span id="result-count"></span></div>
+        <p id="directory-status" class="directory-status" role="status">Finding stations around the world…</p>
+        <button id="retry-directory" class="text-button" hidden>Try again</button>
+        <div id="station-list" class="station-list"></div>
+        <button id="show-more" class="show-more" hidden>Show more stations</button>
+      </section>
+      <div class="library-footer"><span class="status-dot"></span><span id="catalog-count">Connecting to Radio Browser</span><button id="clear-filters" class="text-button" hidden>Reset</button></div>
+    </div>
+    </dialog>
+
+    <section class="world" aria-label="Explore the globe">
+      <div class="world-heading"><p>Drag to explore. Pick a station to listen.</p></div>
+      <div class="globe-wrap"><canvas id="globe" tabindex="0" aria-label="Interactive radio globe. Drag to rotate; use arrow keys to rotate, plus and minus to zoom, and Enter to select a station. Stations are also available in the station list."></canvas></div>
+      <div id="globe-tooltip" class="globe-tooltip" hidden></div>
+      <div class="zoom-controls" aria-label="Globe controls"><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button id="reset-globe" aria-label="Reset globe" title="Reset globe"><svg class="icon"><use href="#i-world"/></svg></button></div>
+      <div class="world-bottom"><div class="coordinates"><span id="coordinates">20° N, 15° E</span><button id="explore-here" class="explore-here"><svg class="icon"><use href="#i-pin"/></svg>Explore here</button></div><button id="surprise" class="surprise"><svg class="icon"><use href="#i-random"/></svg>Surprise me</button></div>
+    </section>
+  </main>
+
+  <footer class="player" aria-label="Radio player">
+    <div class="station-art" aria-hidden="true"><svg class="icon"><use href="#i-world"/></svg></div>
+    <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><p id="playing-location">Choose a station to start your journey.</p></div>
+    <button id="player-favorite" class="icon-button player-favorite" disabled aria-label="Save station to favorites" aria-pressed="false"><svg class="icon"><use href="#i-heart"/></svg></button>
+    <div class="transport"><button id="play-toggle" class="play-toggle" disabled aria-label="Play"><svg class="icon"><use id="play-icon" href="#i-play"/></svg></button><button id="next-station" class="icon-button" aria-label="Play a random station" title="Play a random station"><svg class="icon"><use href="#i-random"/></svg></button></div>
+    <label class="volume"><svg class="icon"><use href="#i-volume"/></svg><input id="volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value="0.6"></label>
+    <a id="station-website" class="icon-button station-website" target="_blank" rel="noopener noreferrer" aria-label="Visit station website" hidden><svg class="icon"><use href="#i-link"/></svg></a>
+    <audio id="audio" preload="none"></audio>
+  </footer>
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <dialog id="about-dialog"><button id="about-close" class="icon-button dialog-close" aria-label="Close about"><svg class="icon"><use href="#i-close"/></svg></button><svg class="icon about-globe"><use href="#i-world"/></svg><h2>Radio Dunya</h2><p>A little window into the world.</p><p>Explore live radio with no ads added by this app. Commercials inside a station’s broadcast will still play.</p><p>Stations come from <a href="https://www.radio-browser.info/" target="_blank" rel="noopener noreferrer">Radio Browser</a>, a community directory. This globe includes mapped stations with secure streams your browser can play. Some stations may be offline or unavailable in your region.</p><p>Your favorites and recent stations stay in this browser. Nothing plays until you choose a station.</p><p class="about-credit">Map: Natural Earth. Made for listening.</p></dialog>
+</body>
+</html>
