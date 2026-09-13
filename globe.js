@@ -1,6 +1,6 @@
 // D3's orthographic projection and Canvas path contracts:
 // https://d3js.org/d3-geo/projection and https://d3js.org/d3-geo/path
-// This module redraws after input/data changes and during a brief release spring.
+// This module redraws after input/data changes and during gesture/navigation springs.
 
 import { getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 
@@ -61,16 +61,29 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let gesture = null;
   let release = null;
 
-  function stopRelease() {
+  function stopRelease(settleNavigation = false) {
+    if (settleNavigation && release?.navigation) {
+      view = { lon: wrapLongitude(release.to.lon), lat: release.to.lat };
+      zoom = release.targetZoom;
+      invalidate(true);
+    }
     release = null;
   }
 
   // Exact damped-spring solution: stable at 60/120 Hz and after a delayed frame.
-  function springAxis(start, target, velocity, elapsed) {
-    const omega = 2 * Math.PI / RELEASE_RESPONSE;
-    const decay = RELEASE_DAMPING * omega;
-    const frequency = omega * Math.sqrt(1 - RELEASE_DAMPING ** 2);
+  function springAxis(start, target, velocity, elapsed, response = RELEASE_RESPONSE, damping = RELEASE_DAMPING) {
+    const omega = 2 * Math.PI / response;
     const offset = start - target;
+    if (damping === 1) {
+      const slope = velocity + omega * offset;
+      const envelope = Math.exp(-omega * elapsed);
+      return {
+        position: target + (offset + slope * elapsed) * envelope,
+        velocity: (velocity - omega * slope * elapsed) * envelope,
+      };
+    }
+    const decay = damping * omega;
+    const frequency = omega * Math.sqrt(1 - damping ** 2);
     const sine = (velocity + decay * offset) / frequency;
     const envelope = Math.exp(-decay * elapsed);
     const cos = Math.cos(frequency * elapsed);
@@ -86,17 +99,55 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   function advanceRelease(now) {
     if (!release) return;
     const elapsed = Math.max(0, (now - release.started) / 1000);
-    const lon = springAxis(release.from.lon, release.to.lon, release.velocity.lon, elapsed);
-    const lat = springAxis(release.from.lat, release.to.lat, release.velocity.lat, elapsed);
+    const axis = name => springAxis(release.from[name], release.to[name], release.velocity[name], elapsed, release.response, release.damping);
+    const lon = axis('lon');
+    const lat = axis('lat');
+    const scale = release.navigation ? axis('scale') : null;
+    release.currentVelocity = { lon: lon.velocity, lat: lat.velocity, scale: scale?.velocity || 0 };
     const atRest = Math.hypot(lon.position - release.to.lon, lat.position - release.to.lat) < release.pixelAngle * 0.1
-      && Math.hypot(lon.velocity, lat.velocity) < release.pixelAngle * 0.4;
+      && Math.hypot(lon.velocity, lat.velocity) < release.pixelAngle * 0.4
+      && (!scale || (Math.abs(scale.position - release.to.scale) * release.targetRadius < 0.1
+        && Math.abs(scale.velocity) * release.targetRadius < 0.4));
     view.lon = wrapLongitude(atRest ? release.to.lon : lon.position);
     view.lat = clamp(atRest ? release.to.lat : lat.position, -89.5, 89.5);
+    if (scale) zoom = clamp(Math.exp(scale.position), 0.8, MAX_ZOOM);
     viewChanged = true;
-    if (atRest || elapsed >= 1.2) {
+    if (atRest || elapsed >= (release.navigation ? 3 : 1.2)) {
       view = { lon: wrapLongitude(release.to.lon), lat: release.to.lat };
+      if (release.navigation) zoom = release.targetZoom;
       stopRelease();
     }
+  }
+
+  function animateView(target, targetZoom = zoom) {
+    const destination = { lat: clamp(target.lat, -89.5, 89.5), lon: wrapLongitude(target.lon) };
+    hover(null);
+    if (reducedMotion.matches || document.hidden) {
+      stopRelease();
+      view = destination;
+      zoom = targetZoom;
+      invalidate(true);
+      return;
+    }
+    const from = { ...view, scale: Math.log(zoom) };
+    // Unwrap around the current pose so crossing the date line takes the short way.
+    const to = { lat: destination.lat, lon: view.lon + wrapLongitude(destination.lon - view.lon), scale: Math.log(targetZoom) };
+    const distance = Math.hypot(to.lon - from.lon, to.lat - from.lat);
+    const response = 0.55 + 0.2 * Math.min(1, distance / 180);
+    const incoming = release?.currentVelocity || release?.velocity || {};
+    const velocity = {};
+    for (const name of ['lon', 'lat', 'scale']) {
+      const delta = to[name] - from[name];
+      const speed = incoming[name] || 0;
+      // Preserve useful momentum when retargeting, bounded to prevent passing the
+      // destination. Apple's tap-driven spring example uses 100% damping.
+      velocity[name] = speed * delta > 0 ? Math.sign(delta) * Math.min(Math.abs(speed), 2 * Math.PI / response * Math.abs(delta)) : 0;
+    }
+    const bounds = canvas.getBoundingClientRect();
+    const targetRadius = Math.max(1, Math.min(bounds.width, bounds.height) * 0.485 * targetZoom);
+    release = { from, to, velocity, response, damping: 1, navigation: true,
+      targetZoom, targetRadius, pixelAngle: 1 / (targetRadius * RADIANS), started: performance.now() };
+    invalidate(true);
   }
 
   function beginRelease(event, finishedGesture) {
@@ -389,7 +440,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   function keyDown(event) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_', 'Home', 'Enter', ' '].includes(event.key)) stopRelease();
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_', 'Enter', ' '].includes(event.key)) stopRelease();
     const step = (event.shiftKey ? 15 : 6) / zoom;
     if (event.key === 'ArrowLeft') view.lon = wrapLongitude(view.lon - step);
     else if (event.key === 'ArrowRight') view.lon = wrapLongitude(view.lon + step);
@@ -397,7 +448,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     else if (event.key === 'ArrowDown') view.lat = clamp(view.lat - step, -89.5, 89.5);
     else if (event.key === '+' || event.key === '=') zoomBy(1.2);
     else if (event.key === '-' || event.key === '_') zoomBy(1 / 1.2);
-    else if (event.key === 'Home') { view = { ...INITIAL_VIEW }; zoom = 1; }
+    else if (event.key === 'Home') animateView(INITIAL_VIEW, 1);
     else if (event.key === 'Enter' || event.key === ' ') {
       const station = hitTest({ x: width / 2, y: height / 2 }, Infinity);
       if (station) onSelect(station);
@@ -418,10 +469,10 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   listen('keydown', keyDown);
   listen('blur', () => canvas.classList.remove('keyboard-focus'));
   reducedMotion.addEventListener('change', () => {
-    if (reducedMotion.matches) stopRelease();
+    if (reducedMotion.matches) stopRelease(true);
   }, { signal: lifetime.signal });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopRelease();
+    if (document.hidden) stopRelease(true);
   }, { signal: lifetime.signal });
   document.addEventListener('keydown', event => {
     if (event.key === 'Tab') canvas.classList.add('keyboard-focus');
@@ -482,18 +533,11 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     focusStation(station) {
       const location = getMapLocation(station);
       if (!location) return;
-      stopRelease();
-      view = { lat: clamp(location.lat, -89.5, 89.5), lon: wrapLongitude(location.lon) };
-      hover(null);
-      invalidate(true);
+      animateView(location);
     },
     zoomBy,
     reset() {
-      stopRelease();
-      view = { ...INITIAL_VIEW };
-      zoom = 1;
-      hover(null);
-      invalidate(true);
+      animateView(INITIAL_VIEW, 1);
     },
     destroy() {
       stopRelease();

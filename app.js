@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=elastic-globe-1';
+import { createGlobe } from './globe.js?v=elastic-camera-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
