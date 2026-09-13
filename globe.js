@@ -42,6 +42,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let land = null;
   let borders = null;
   let stations = [];
+  let stationStreams = new Map();
   let visiblePins = [];
   let selected = null;
   let hovered = null;
@@ -158,6 +159,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.globalAlpha = 1;
 
     for (const station of [hovered, selected]) {
+      if (!station||stationStreams.get(station.id)!==station.url) continue;
       const point = projectedStation(station);
       if (!point) continue;
       const isSelected = station === selected;
@@ -347,6 +349,9 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   return {
     setStations(nextStations) {
       stations = Array.isArray(nextStations) ? nextStations.filter(isMappable) : [];
+      stationStreams = new Map(stations.map(station => [station.id,station.url]));
+      // Discard old hit targets immediately when a filter changes, before redraw.
+      visiblePins = [];
       hover(null);
       invalidate();
     },

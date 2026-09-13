@@ -1,6 +1,7 @@
 import { createGlobe } from './globe.js';
 import { getStations, recordStationClick } from './radio-directory.js';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js';
+import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
@@ -13,6 +14,7 @@ try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch 
 let favorites = new Map((Array.isArray(saved.favorites) ? saved.favorites : []).filter(validStation).map(s => [s.id, s]));
 let recent = (Array.isArray(saved.recent) ? saved.recent : []).filter(validStation).slice(0, 30);
 let stations = [], filtered = [], current = null, tab = 'explore', loading = true, loadError = false;
+let talkError = false, talkCount = 0, communityDirectory = null;
 let visibleCount = 60, near = null, center = {lat:20,lon:15}, phase = 'idle';
 let playGeneration = 0, connectTimer, noticeTimer, directoryGeneration = 0;
 const searchIndex = new Map();
@@ -137,7 +139,7 @@ function row(s) {
   const badge = document.createElement('span'); badge.className='station-badge'; badge.textContent=countryCodeFor(s)||'FM'; badge.setAttribute('aria-hidden','true');
   const copy = document.createElement('span'); copy.className='station-copy';
   const name = document.createElement('span'); name.className='station-name'; name.textContent=s.name;
-  const meta = document.createElement('span'); meta.className='station-meta'; meta.textContent=[locationLabel(s)||s.language||'Live radio',mapLocationNote(s)].filter(Boolean).join(' · ');
+  const meta = document.createElement('span'); meta.className='station-meta'; meta.textContent=[locationLabel(s)||s.language||'Live radio',getTalkStation(s)?.talkFormat,mapLocationNote(s)].filter(Boolean).join(' · ');
   copy.append(name,meta); tune.append(badge,copy);
   tune.addEventListener('click',() => { globe.focusStation(s); playStation(s); closeStations(); });
   const favorite = document.createElement('button'); favorite.type='button'; favorite.className='row-favorite'; favorite.dataset.id=s.id; favorite.dataset.name=s.name; favorite.append(svg('heart'));
@@ -152,46 +154,77 @@ function renderRows() {
 function render() {
   const terms = fold($('search').value).trim().split(/\s+/).filter(Boolean);
   const country = $('country').value, genre=fold($('genre').value);
-  const source = tab==='favorites' ? [...favorites.values()] : tab==='recent' ? recent : stations;
-  filtered=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||fold(s.tags).includes(genre)) && terms.every(term=>textFor(s).includes(term)));
+  const records = tab==='favorites' ? [...favorites.values()] : tab==='recent' ? recent : stations;
+  // A saved UUID can outlive its old stream; always use the reviewed record once available.
+  const source = [...new Map(records.map(s=>{const reviewed=getTalkStation(s)||s;return [reviewed.id,reviewed];})).values()];
+  const talk = genre==='talk';
+  filtered=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||(talk ? isTalkStation(s) : fold(s.tags).includes(genre))) && terms.every(term=>textFor(s).includes(term)));
   if (near&&tab==='explore') filtered.sort((a,b)=>distance(a,near)-distance(b,near));
-  $('list-title').textContent = tab==='favorites' ? 'Your favorite stations' : tab==='recent' ? 'Recently heard' : near ? 'Around this view' : 'Across the dial';
+  $('list-title').textContent = tab==='favorites' ? 'Your favorite stations' : tab==='recent' ? 'Recently heard' : near ? 'Around this view' : talk ? 'Voices around the world' : 'Across the dial';
+  $('talk-note').hidden=!talk||!talkCount;
   $('result-count').textContent=filtered.length ? filtered.length.toLocaleString() : '';
   $('clear-filters').hidden=!(terms.length||country||genre||near);
   const status=$('directory-status');
   let message='';
-  if (tab==='explore'&&loading&&!stations.length) message='Finding stations around the world…';
+  if (talk&&loading&&!talkCount) message='Loading the speech collection…';
+  else if (talk&&talkError) message='The speech collection could not load. Try again.';
+  else if (tab==='explore'&&loading&&!stations.length) message='Finding stations around the world…';
   else if (tab==='explore'&&loadError&&!stations.length) message='The station directory is unavailable. Try again, or listen to a saved favorite.';
   else if (!filtered.length) message=terms.length||country||genre ? 'No stations match these filters. Try another search or reset the filters.' : tab==='favorites' ? 'Keep a little of the world. Tap a heart to save a station here.' : tab==='recent' ? 'Your last 30 stations will appear here after you listen.' : 'No playable stations were returned. Try the directory again.';
   status.textContent=message; status.hidden=!message;
-  $('retry-directory').hidden=!(tab==='explore'&&loadError&&!loading);
+  $('retry-directory').hidden=!(!loading&&((talk&&talkError)||(tab==='explore'&&loadError)));
   $('surprise').disabled=$('next-station').disabled=!filtered.length;
   globe.setStations(filtered); renderRows();
 }
-async function loadDirectory() {
-  const generation=++directoryGeneration; loading=true; loadError=false; render();
-  try {
-    // Saved favorites still need their corrected pins when directory access fails.
-    const [directory, locations]=await Promise.allSettled([getStations(),loadLocationBounds()]);
-    if (generation!==directoryGeneration) return;
-    if (directory.status==='rejected') throw directory.reason;
-    const data=directory.value, locationsReady=locations.status==='fulfilled'&&locations.value;
-    if (!Array.isArray(data.stations)) throw new Error('Invalid directory');
-    stations=data.stations.filter(validStation); searchIndex.clear();
+function applyDirectory(data, reviewed) {
+    talkCount=reviewed.length;
+    // Reviewed records supply the chosen stream, including stations missing geo data.
+    // Keep the global directory usable if this independent collection fails, and vice versa.
+    const merged=new Map(reviewed.map(s=>[s.id,s]));
+    const urls=new Set(reviewed.map(s=>s.url));
+    for (const s of data?.stations||[]) {
+      if (!validStation(s)||merged.has(s.id)||getTalkStation(s)) continue;
+      const url=new URL(s.url); url.hash='';
+      if (urls.has(url.href)) continue;
+      merged.set(s.id,s); urls.add(url.href);
+    }
+    stations=[...merged.values()]; searchIndex.clear();
     const countries=new Map(); stations.forEach(s=>{const code=countryCodeFor(s);if(code) countries.set(code,getMapLocation(s)?.country||s.country||code);});
     const previousCountry=$('country').value;
     $('country').replaceChildren(new Option('Every country',''),...[...countries.entries()].sort((a,b)=>a[1].localeCompare(b[1])).map(([value,label])=>new Option(label,value)));
     $('country').value=previousCountry;
     const currentRecords=new Map(stations.map(s=>[s.id,s]));
-    favorites=new Map([...favorites].map(([id,s])=>[id,currentRecords.get(id)||s]));
-    recent=recent.map(s=>currentRecords.get(s.id)||s);
+    const refreshed=s=>getTalkStation(s)||currentRecords.get(s.id)||s;
+    favorites=new Map([...favorites.values()].map(s=>{const updated=refreshed(s);return [updated.id,updated];}));
+    recent=[...new Map(recent.map(s=>{const updated=refreshed(s);return [updated.id,updated];})).values()];
     if (current) {
-      current=currentRecords.get(current.id)||current;
+      const updated=refreshed(current);
+      // Do not relabel audio already playing from a different saved stream.
+      if (!audio.getAttribute('src')||current.url===updated.url) current=updated;
     }
     const mappedCount=stations.filter(isMappable).length;
-    $('catalog-count').textContent=`${mappedCount.toLocaleString()} mapped · ${stations.length.toLocaleString()} stations${data.stale?' (cached)':''}`;
-    if (!locationsReady) showNotice('Location corrections could not load. Showing the directory’s original pins.');
-    if (!stations.length) loadError=true;
+    $('catalog-count').textContent=`${mappedCount.toLocaleString()} mapped · ${stations.length.toLocaleString()} stations${data?.stale?' (cached)':''}${loadError?' · Speech collection only':''}`;
+    if(current){globe.selectStation(current);updatePlayingMetadata();}
+    render();
+}
+async function loadDirectory() {
+  const generation=++directoryGeneration; loading=true; loadError=false; talkError=false; render();
+  try {
+    const directoryRequest=getStations(), locationRequest=loadLocationBounds(), speechRequest=loadTalkDirectory();
+    // Speech remains available promptly even if community mirrors are slow or blocked.
+    const earlySpeech=Promise.allSettled([locationRequest,speechRequest]).then(([,speech])=>{
+      if(generation!==directoryGeneration||speech.status!=='fulfilled') return;
+      applyDirectory(communityDirectory,speech.value.stations);
+    });
+    const [directory, locations, speech]=await Promise.allSettled([directoryRequest,locationRequest,speechRequest]);
+    await earlySpeech;
+    if (generation!==directoryGeneration) return;
+    const data=directory.status==='fulfilled'?directory.value:null;
+    loadError=!Array.isArray(data?.stations);
+    if (!loadError) communityDirectory=data;
+    talkError=speech.status==='rejected';
+    applyDirectory(communityDirectory,talkError?[]:speech.value.stations);
+    if (!(locations.status==='fulfilled'&&locations.value)) showNotice('Location corrections could not load. Showing the directory’s original pins.');
   } catch {
     if (generation!==directoryGeneration) return;
     loadError=true; $('catalog-count').textContent='Station directory unavailable';
@@ -232,8 +265,9 @@ function updatePlayingMetadata() {
   }
 }
 function playStation(s) {
+  s=getTalkStation(s)||s;
   if (!validStation(s)) return;
-  if(current?.id===s.id&&phase==='playing') return;
+  if(current?.id===s.id&&current.url===s.url&&phase==='playing') return;
   disconnect(); const generation=playGeneration;
   current=s; setPhase('connecting');
   updatePlayingMetadata();
