@@ -177,7 +177,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
     if (viewChanged) {
       viewChanged = false;
-      onViewChange({ ...view });
+      onViewChange({ ...view, zoom, maxZoom: MAX_ZOOM });
     }
   }
 
@@ -253,7 +253,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
       zoom = clamp(gesture.zoom * distance / gesture.distance, 0.8, MAX_ZOOM);
       gesture.moved = true;
-      invalidate();
+      invalidate(true);
       return;
     }
     const dx = point.x - gesture.x;
@@ -283,7 +283,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (!Number.isFinite(factor) || factor <= 0) return;
     zoom = clamp(zoom * factor, 0.8, MAX_ZOOM);
     hover(null);
-    invalidate();
+    invalidate(true);
   }
 
   function keyDown(event) {

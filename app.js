@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js';
+import { createGlobe } from './globe.js?v=zoom54-2';
 import { getStations, recordStationClick } from './radio-directory.js';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
@@ -97,6 +97,11 @@ const globe = createGlobe($('globe'), {
   onViewChange: (view) => {
     center = view;
     $('coordinates').textContent = `${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'S':'N'}, ${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'W':'E'}`;
+    const zoomLevel=$('zoom-level');
+    if (zoomLevel) {
+      zoomLevel.textContent=`${view.zoom<10?Number(view.zoom.toFixed(1)):Math.round(view.zoom)}×`;
+      zoomLevel.setAttribute('aria-label',`Zoom ${view.zoom.toFixed(1)} times, maximum ${view.maxZoom} times`);
+    }
   },
   onHover: (station) => {
     $('globe-tooltip').hidden = !station;

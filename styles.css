@@ -28,6 +28,7 @@ body{display:grid;height:100dvh;min-height:0;padding:0;grid-template-rows:72px m
 #globe.keyboard-focus:focus{outline:1px solid var(--world-line);outline-offset:-1px}
 .zoom-controls{right:28px;top:50%;transform:translateY(-50%);background:var(--globe-ocean)}
 .zoom-controls button{width:40px;height:40px}
+.zoom-controls output{display:block;text-align:center;border-top:1px solid var(--world-line);padding:6px 0;font-size:11px;font-variant-numeric:tabular-nums;color:var(--world-muted)}
 .world-bottom{bottom:20px;left:28px;right:28px;align-items:center}
 .world-bottom .surprise{background:var(--globe-ocean)}
 .player{position:relative;inset:auto;height:100%;padding:12px 28px;gap:16px}
