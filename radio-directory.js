@@ -170,3 +170,69 @@ export async function recordStationClick(id) {
     return result?.ok === true || result?.ok === 'true';
   } catch { return false; }
 }
+
+let regionalCache;
+let regionalLoading;
+const regionalUnavailable = 'The regional station collection could not load. Please try again.';
+
+function normalizeRegional(data) {
+  const timestamp = Date.parse(data?.updatedAt);
+  if (data?.version !== 1 || data?.source !== 'Radio Browser' || !Number.isFinite(timestamp) ||
+      timestamp > Date.now() + 60000 || !Array.isArray(data.stations) ||
+      !data.stations.length || data.stations.length > 15000) throw new Error(regionalUnavailable);
+  const seenIds = new Set();
+  const seenUrls = new Set();
+  const stations = [];
+  for (const row of data.stations) {
+    if (!row || typeof row !== 'object') continue;
+    // Match talk-directory.js's normalized record contract without granting Talk membership.
+    const id = typeof row.id === 'string' ? row.id.trim().toLowerCase() : '';
+    const countryCode = typeof row.countryCode === 'string' ? row.countryCode.trim().toUpperCase() : '';
+    const name = clean(row.name, 400);
+    const codec = clean(row.codec, 24).toUpperCase();
+    const safe = safeUrl(row.url, true);
+    if (!uuid.test(id) || !/^[A-Z]{2}$/.test(countryCode) || !name || !safe ||
+        !['MP3', 'AAC', 'AAC+', 'OGG', 'OPUS'].includes(codec)) continue;
+    const stream = new URL(safe);
+    if (/\.m3u8$/i.test(stream.pathname)) continue;
+    // Fragments do not select different radio streams; paths and queries can.
+    stream.hash = '';
+    const url = stream.href;
+    if (seenIds.has(id) || seenUrls.has(url)) continue;
+    const hasPoint = Number.isFinite(row.lat) && Number.isFinite(row.lon) &&
+      Math.abs(row.lat) <= 90 && Math.abs(row.lon) <= 180;
+    // station-location.js:getMapLocation supplies labeled city/capital approximations.
+    // Keep missing source coordinates null instead of presenting a fallback as supplied data.
+    stations.push({
+      id, name, url, codec, lat: hasPoint ? row.lat : null, lon: hasPoint ? row.lon : null,
+      country: clean(row.country, 100), countryCode,
+      state: clean(row.state, 160), language: clean(row.language, 300), tags: clean(row.tags, 600),
+      homepage: safeUrl(row.homepage), bitrate: Math.max(0, Math.min(10000, Number(row.bitrate) || 0)),
+      streamOverride: row.streamOverride === true,
+    });
+    seenIds.add(id);
+    seenUrls.add(url);
+  }
+  if (!stations.length) throw new Error(regionalUnavailable);
+  return { stations, updatedAt: new Date(timestamp).toISOString(), source: 'Radio Browser' };
+}
+
+export function loadRegionalDirectory() {
+  if (regionalCache) return Promise.resolve(regionalCache);
+  if (!regionalLoading) regionalLoading = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      // Keep bundled data separate from the 10,000-row, mapped-only community cache.
+      // A relative asset URL also works beneath GitHub Pages project paths.
+      const response = await fetch(new URL('./assets/regional-stations.json', import.meta.url), {
+        credentials: 'omit', signal: controller.signal, redirect: 'error', cache: 'no-cache',
+      });
+      if (!response.ok) throw new Error(regionalUnavailable);
+      regionalCache = normalizeRegional(await response.json());
+      return regionalCache;
+    } catch { throw new Error(regionalUnavailable); }
+    finally { clearTimeout(timer); }
+  })().finally(() => { regionalLoading = null; });
+  return regionalLoading;
+}

@@ -5,12 +5,42 @@ let loading;
 let resolved = new WeakMap();
 const fold = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-let cityNames = [], countryNames = [];
+let cityIndex, countryIndex;
 // Stream-format labels are not city hints (for example "/mobile" is not Mobile, Alabama).
 const streamWords = new Set(['mobile','online','web','live','stream','stereo','mono','classic','classics','jazz','rock','pop','dance']);
 
+function buildNameIndex(entries) {
+  const aliases = new Map();
+  let maxWords = 0;
+  entries.forEach((entry, order) => {
+    const indexed = {...entry, order};
+    for (const name of entry.names) {
+      if (!aliases.has(name)) aliases.set(name, []);
+      aliases.get(name).push(indexed);
+      maxWords = Math.max(maxWords, name.split(' ').length);
+    }
+  });
+  return {aliases, maxWords};
+}
+
+function matchingNames(words, index) {
+  const matches = new Map();
+  for (let start = 0; start < words.length; start++) {
+    let name = '';
+    for (let end = start; end < Math.min(words.length, start + index.maxWords); end++) {
+      name += (end > start ? ' ' : '') + words[end];
+      for (const entry of index.aliases.get(name) || []) {
+        matches.set(entry, Math.max(matches.get(entry) || 0, name.length));
+      }
+    }
+  }
+  // Keep gazetteer order for equal aliases, including entries sharing coordinates.
+  return [...matches].sort(([a], [b]) => a.order - b.order)
+    .map(([entry, length]) => ({...entry, length}));
+}
+
 async function readAsset(name, signal) {
-  const response = await fetch(new URL('./assets/' + name, import.meta.url), {credentials:'omit', signal});
+  const response = await fetch(new URL('./assets/' + name, import.meta.url), {credentials:'omit', cache:'no-cache', signal});
   if (!response.ok) throw new Error('Location data unavailable');
   const data = await response.json();
   if (data.version !== 1 || !data.countries || Object.keys(data.countries).length < 150) throw new Error('Invalid location data');
@@ -30,8 +60,8 @@ export function loadLocationBounds() {
       if (!Array.isArray(gazetteer.places)) throw new Error('Invalid city data');
       bounds = extents.countries;
       places = gazetteer;
-      cityNames = places.places.map(city => ({city, names:[...new Set([city.name,...(city.aliases || [])].map(fold))].filter(name=>name.length>=4&&!streamWords.has(name))}));
-      countryNames = Object.entries(places.countries).map(([code,country]) => ({code, names:[...new Set([country.name,...(country.aliases || [])].map(fold))].filter(name=>name.length>=4)}));
+      cityIndex = buildNameIndex(places.places.map(city => ({city, names:[...new Set([city.name,...(city.aliases || [])].map(fold))].filter(name=>name.length>=4&&!streamWords.has(name))})));
+      countryIndex = buildNameIndex(Object.entries(places.countries).map(([code,country]) => ({code, names:[...new Set([country.name,...(country.aliases || [])].map(fold))].filter(name=>name.length>=4)})));
       resolved = new WeakMap();
       return true;
     } catch {
@@ -56,17 +86,16 @@ function fitsCountry(point, code) {
     && [point.lon,point.lon-360,point.lon+360].some(lon=>lon>=west && lon<=east));
 }
 
-function namedPlace(station, countryCode) {
-  const text = ' ' + fold(station.name) + ' ';
-  const contains = name => text.includes(' ' + name + ' ');
-  const countries = countryNames.filter(country=>country.names.some(contains));
+function namedPlace(station, countryCode, localOnly = false) {
+  const words = fold(station.name).split(' ');
+  const countries = localOnly ? [] : matchingNames(words, countryIndex);
   const explicitCountry = countries.length===1 ? countries[0].code : '';
   const expected = explicitCountry || countryCode;
-  const matches = cityNames.map(({city,names})=>({city, length:Math.max(0,...names.filter(contains).map(name=>name.length))})).filter(match=>match.length);
+  const matches = matchingNames(words, cityIndex);
   const local = matches.filter(match=>match.city.countryCode===expected);
   // Prefer the listed country. Global matches must be unambiguous and longer
   // than a short word that could simply be part of the station's brand.
-  const candidates = local.length ? local : explicitCountry ? [] : matches.filter(match=>match.length>=5);
+  const candidates = local.length ? local : localOnly || explicitCountry ? [] : matches.filter(match=>match.length>=5);
   const longest = Math.max(0,...candidates.map(match=>match.length));
   const best = candidates.filter(match=>match.length===longest);
   const unique = new Map(best.map(({city})=>[city.countryCode+':'+city.lat+':'+city.lon,city]));
@@ -86,7 +115,9 @@ export function getMapLocation(station) {
     resolved.set(station,original);
     return original;
   }
-  const hint = namedPlace(station,sourceCode);
+  // Without source coordinates, a station brand cannot relocate its known country.
+  const localOnly = !original && Object.hasOwn(places.countries, sourceCode);
+  const hint = namedPlace(station,sourceCode,localOnly);
   const code = hint.city?.countryCode || hint.countryCode;
   const country = Object.hasOwn(places.countries,code) ? places.countries[code] : null;
   let location;

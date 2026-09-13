@@ -2,7 +2,7 @@
 // https://d3js.org/d3-geo/projection and https://d3js.org/d3-geo/path
 // This module redraws only after input, resize, or a data change.
 
-import { getMapLocation, isMappable } from './station-location.js';
+import { getMapLocation, isMappable } from './station-location.js?v=coverage-1';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
