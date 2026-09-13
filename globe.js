@@ -2,16 +2,17 @@
 // https://d3js.org/d3-geo/projection and https://d3js.org/d3-geo/path
 // This module redraws only after input, resize, or a data change.
 
+import { getMapLocation, isMappable } from './station-location.js';
+
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
-const hasCoordinates = station => station && Number.isFinite(station.lat)
-  && Number.isFinite(station.lon) && Math.abs(station.lat) <= 90 && Math.abs(station.lon) <= 180;
 
 /**
  * Create an event-driven globe. Load the three vendor scripts before this module.
- * Station coordinates are numeric lat/lon in degrees; missing coordinates are skipped.
+ * Pins use resolved locations, including approximate city/capital locations.
+ * Stations without a resolved location are skipped; raw coordinates are preserved.
  * onSelect and onHover receive the original station object, never a clone.
  */
 export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {} } = {}) {
@@ -72,14 +73,15 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   }
 
   function projectedStation(station) {
-    if (!hasCoordinates(station)) return null;
-    const lat = station.lat * RADIANS;
+    const location = getMapLocation(station);
+    if (!location) return null;
+    const lat = location.lat * RADIANS;
     const centerLat = view.lat * RADIANS;
     const facing = Math.sin(lat) * Math.sin(centerLat)
-      + Math.cos(lat) * Math.cos(centerLat) * Math.cos((station.lon - view.lon) * RADIANS);
+      + Math.cos(lat) * Math.cos(centerLat) * Math.cos((location.lon - view.lon) * RADIANS);
     // projection(point) alone does not apply hemisphere clipping.
     if (facing <= 0.012) return null;
-    const point = projection([station.lon, station.lat]);
+    const point = projection([location.lon, location.lat]);
     if (!point || point[0] < -12 || point[0] > width + 12 || point[1] < -12 || point[1] > height + 12) return null;
     return { station, x: point[0], y: point[1] };
   }
@@ -185,10 +187,11 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     return Math.hypot(point.x - width / 2, point.y - height / 2) <= radius + 6;
   }
 
-  function hitTest(point, tolerance = 13) {
+  function hitTest(point, tolerance = 7) {
     let closest = null;
     let distanceSquared = tolerance * tolerance;
     for (const pin of visiblePins) {
+      if (!isMappable(pin.station)) continue;
       const distance = (point.x - pin.x) ** 2 + (point.y - pin.y) ** 2;
       if (distance < distanceSquared) {
         distanceSquared = distance;
@@ -268,7 +271,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     startGesture(true);
     canvas.style.cursor = pointers.size ? 'grabbing' : 'grab';
     if (shouldSelect) {
-      const station = hitTest(localPoint(event), event.pointerType === 'touch' ? 24 : 13);
+      const station = hitTest(localPoint(event), event.pointerType === 'touch' ? 10 : 7);
       if (station) onSelect(station);
     }
   }
@@ -343,17 +346,18 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   invalidate(true);
   return {
     setStations(nextStations) {
-      stations = Array.isArray(nextStations) ? nextStations.filter(hasCoordinates) : [];
+      stations = Array.isArray(nextStations) ? nextStations.filter(isMappable) : [];
       hover(null);
       invalidate();
     },
     selectStation(station) {
-      selected = station || null;
+      selected = isMappable(station) ? station : null;
       invalidate();
     },
     focusStation(station) {
-      if (!hasCoordinates(station)) return;
-      view = { lat: clamp(station.lat, -89.5, 89.5), lon: wrapLongitude(station.lon) };
+      const location = getMapLocation(station);
+      if (!location) return;
+      view = { lat: clamp(location.lat, -89.5, 89.5), lon: wrapLongitude(location.lon) };
       hover(null);
       invalidate(true);
     },

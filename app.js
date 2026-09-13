@@ -1,5 +1,6 @@
 import { createGlobe } from './globe.js';
 import { getStations, recordStationClick } from './radio-directory.js';
+import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
@@ -70,16 +71,24 @@ function svg(name) {
   use.setAttribute('href',`#i-${name}`); element.append(use); return element;
 }
 function locationLabel(s) {
+  const location = getMapLocation(s);
+  if (location?.approximate) return [location.city,location.country].filter(Boolean).join(', ');
+  if (location?.countryCode && location.countryCode!==s.countryCode) return [s.state,location.country].filter(Boolean).join(', ');
   return [s.state && fold(s.state) !== fold(s.country) ? s.state : '', s.country || s.countryCode].filter(Boolean).join(', ');
 }
+function mapLocationNote(s) {
+  return getMapLocation(s)?.approximate ? 'Approximate location' : '';
+}
+const countryCodeFor = s => getMapLocation(s)?.countryCode || s.countryCode;
 function textFor(s) {
-  if (!searchIndex.has(s.id)) searchIndex.set(s.id, fold([s.name,s.country,s.countryCode,s.state,s.language,s.tags].join(' ')));
+  if (!searchIndex.has(s.id)) searchIndex.set(s.id, fold([s.name,s.country,s.countryCode,s.state,s.language,s.tags,locationLabel(s),countryCodeFor(s)].join(' ')));
   return searchIndex.get(s.id);
 }
 function distance(s, origin) {
-  if (!Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return Infinity;
+  const location = getMapLocation(s);
+  if (!location) return Infinity;
   const rad = Math.PI / 180;
-  return 1 - (Math.sin(s.lat*rad)*Math.sin(origin.lat*rad) + Math.cos(s.lat*rad)*Math.cos(origin.lat*rad)*Math.cos((s.lon-origin.lon)*rad));
+  return 1 - (Math.sin(location.lat*rad)*Math.sin(origin.lat*rad) + Math.cos(location.lat*rad)*Math.cos(origin.lat*rad)*Math.cos((location.lon-origin.lon)*rad));
 }
 const globe = createGlobe($('globe'), {
   onSelect: (station) => { playStation(station); },
@@ -89,7 +98,7 @@ const globe = createGlobe($('globe'), {
   },
   onHover: (station) => {
     $('globe-tooltip').hidden = !station;
-    if (station) $('globe-tooltip').textContent = `${station.name} — ${station.country || station.countryCode}`;
+    if (station) $('globe-tooltip').textContent = [station.name,locationLabel(station),mapLocationNote(station)].filter(Boolean).join(' — ');
   }
 });
 $('globe').addEventListener('globeerror', () => showNotice('The map could not load. You can still listen using the station list.'));
@@ -125,10 +134,10 @@ function setTab(next) {
 function row(s) {
   const element = document.createElement('div'); element.className = `station-row${current?.id===s.id?' selected':''}`; element.dataset.id=s.id;
   const tune = document.createElement('button'); tune.className='station-tune'; tune.type='button'; tune.setAttribute('aria-label',`Listen to ${s.name}, ${locationLabel(s)}`);
-  const badge = document.createElement('span'); badge.className='station-badge'; badge.textContent=s.countryCode||'FM'; badge.setAttribute('aria-hidden','true');
+  const badge = document.createElement('span'); badge.className='station-badge'; badge.textContent=countryCodeFor(s)||'FM'; badge.setAttribute('aria-hidden','true');
   const copy = document.createElement('span'); copy.className='station-copy';
   const name = document.createElement('span'); name.className='station-name'; name.textContent=s.name;
-  const meta = document.createElement('span'); meta.className='station-meta'; meta.textContent=locationLabel(s)||s.language||'Live radio';
+  const meta = document.createElement('span'); meta.className='station-meta'; meta.textContent=[locationLabel(s)||s.language||'Live radio',mapLocationNote(s)].filter(Boolean).join(' · ');
   copy.append(name,meta); tune.append(badge,copy);
   tune.addEventListener('click',() => { globe.focusStation(s); playStation(s); closeStations(); });
   const favorite = document.createElement('button'); favorite.type='button'; favorite.className='row-favorite'; favorite.dataset.id=s.id; favorite.dataset.name=s.name; favorite.append(svg('heart'));
@@ -144,7 +153,7 @@ function render() {
   const terms = fold($('search').value).trim().split(/\s+/).filter(Boolean);
   const country = $('country').value, genre=fold($('genre').value);
   const source = tab==='favorites' ? [...favorites.values()] : tab==='recent' ? recent : stations;
-  filtered=source.filter(s => (!country||s.countryCode===country) && (!genre||fold(s.tags).includes(genre)) && terms.every(term=>textFor(s).includes(term)));
+  filtered=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||fold(s.tags).includes(genre)) && terms.every(term=>textFor(s).includes(term)));
   if (near&&tab==='explore') filtered.sort((a,b)=>distance(a,near)-distance(b,near));
   $('list-title').textContent = tab==='favorites' ? 'Your favorite stations' : tab==='recent' ? 'Recently heard' : near ? 'Around this view' : 'Across the dial';
   $('result-count').textContent=filtered.length ? filtered.length.toLocaleString() : '';
@@ -162,23 +171,35 @@ function render() {
 async function loadDirectory() {
   const generation=++directoryGeneration; loading=true; loadError=false; render();
   try {
-    const data=await getStations();
+    // Saved favorites still need their corrected pins when directory access fails.
+    const [directory, locations]=await Promise.allSettled([getStations(),loadLocationBounds()]);
     if (generation!==directoryGeneration) return;
+    if (directory.status==='rejected') throw directory.reason;
+    const data=directory.value, locationsReady=locations.status==='fulfilled'&&locations.value;
     if (!Array.isArray(data.stations)) throw new Error('Invalid directory');
     stations=data.stations.filter(validStation); searchIndex.clear();
-    const countries=new Map(); stations.forEach(s=>{if(s.countryCode) countries.set(s.countryCode,s.country||s.countryCode);});
+    const countries=new Map(); stations.forEach(s=>{const code=countryCodeFor(s);if(code) countries.set(code,getMapLocation(s)?.country||s.country||code);});
     const previousCountry=$('country').value;
     $('country').replaceChildren(new Option('Every country',''),...[...countries.entries()].sort((a,b)=>a[1].localeCompare(b[1])).map(([value,label])=>new Option(label,value)));
     $('country').value=previousCountry;
     const currentRecords=new Map(stations.map(s=>[s.id,s]));
     favorites=new Map([...favorites].map(([id,s])=>[id,currentRecords.get(id)||s]));
     recent=recent.map(s=>currentRecords.get(s.id)||s);
-    $('catalog-count').textContent=`${stations.length.toLocaleString()} mapped stations${data.stale?' (cached)':''}`;
+    if (current) {
+      current=currentRecords.get(current.id)||current;
+    }
+    const mappedCount=stations.filter(isMappable).length;
+    $('catalog-count').textContent=`${mappedCount.toLocaleString()} mapped · ${stations.length.toLocaleString()} stations${data.stale?' (cached)':''}`;
+    if (!locationsReady) showNotice('Location corrections could not load. Showing the directory’s original pins.');
     if (!stations.length) loadError=true;
   } catch {
     if (generation!==directoryGeneration) return;
     loadError=true; $('catalog-count').textContent='Station directory unavailable';
-  } finally { if(generation===directoryGeneration){loading=false;render();} }
+  } finally { if(generation===directoryGeneration){
+    loading=false; searchIndex.clear();
+    if(current){globe.selectStation(current);updatePlayingMetadata();}
+    render();
+  } }
 }
 function setPhase(next,message) {
   phase=next;
@@ -201,14 +222,21 @@ function startWatchdog(generation) {
   clearTimeout(connectTimer);
   connectTimer=setTimeout(()=>{if(generation===playGeneration) playbackError('This station is taking too long to connect. Try another, or press play to retry.');},20000);
 }
+function updatePlayingMetadata() {
+  const s=current;
+  $('playing-name').textContent=s.name;
+  $('playing-name').title=s.name;
+  $('playing-location').textContent=[locationLabel(s),mapLocationNote(s),s.codec,s.bitrate?`${s.bitrate} kbps`:''].filter(Boolean).join(' · ');
+  if('mediaSession' in navigator&&'MediaMetadata' in window) {
+    navigator.mediaSession.metadata=new MediaMetadata({title:s.name,artist:locationLabel(s),album:'Radio Dunya'});
+  }
+}
 function playStation(s) {
   if (!validStation(s)) return;
   if(current?.id===s.id&&phase==='playing') return;
   disconnect(); const generation=playGeneration;
   current=s; setPhase('connecting');
-  $('playing-name').textContent=s.name;
-  $('playing-name').title=s.name;
-  $('playing-location').textContent=[locationLabel(s),s.codec,s.bitrate?`${s.bitrate} kbps`:''].filter(Boolean).join(' · ');
+  updatePlayingMetadata();
   $('play-toggle').disabled=false;
   const homepage=validUrl(s.homepage);
   $('station-website').hidden=!homepage;
@@ -221,9 +249,6 @@ function playStation(s) {
     playbackError(error.name==='NotAllowedError'?'Your browser needs another tap on Play to start audio.':undefined);
   });
   startWatchdog(generation);
-  if('mediaSession' in navigator&&'MediaMetadata' in window) {
-    navigator.mediaSession.metadata=new MediaMetadata({title:s.name,artist:locationLabel(s),album:'Radio Dunya'});
-  }
 }
 let lastCounted='';
 audio.addEventListener('playing',()=>{
