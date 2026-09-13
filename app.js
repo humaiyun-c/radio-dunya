@@ -213,9 +213,13 @@ function row(s) {
   const element = document.createElement('div'); element.className = `station-row${current?.id===s.id?' selected':''}`; element.dataset.id=s.id;
   const tune = document.createElement('button'); tune.className='station-tune'; tune.type='button'; tune.setAttribute('aria-label',`Listen to ${s.name}, ${locationLabel(s)}`);
   const badge = document.createElement('span'); badge.className='station-badge'; badge.textContent=countryCodeFor(s)||'FM'; badge.setAttribute('aria-hidden','true');
+  // Stable local colors distinguish station tiles without downloading artwork.
+  const tone = [...s.id].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0) % 5;
+  badge.dataset.tone = ['blue','violet','mint','amber','rose'][tone];
   const copy = document.createElement('span'); copy.className='station-copy';
   const name = document.createElement('span'); name.className='station-name'; name.textContent=s.name;
   const meta = document.createElement('span'); meta.className='station-meta'; meta.textContent=[locationLabel(s)||s.language||'Live radio',getTalkStation(s)?.talkFormat,mapLocationNote(s)].filter(Boolean).join(' · ');
+  name.title=s.name; meta.title=meta.textContent;
   copy.append(name,meta); tune.append(badge,copy);
   tune.addEventListener('click',() => { globe.focusStation(s); playStation(s); closeStations(); });
   const favorite = document.createElement('button'); favorite.type='button'; favorite.className='row-favorite'; favorite.dataset.id=s.id; favorite.dataset.name=s.name; favorite.append(svg('heart'));
@@ -281,7 +285,7 @@ function applyDirectory(data, reviewed) {
     stations=[...merged.values()]; searchIndex.clear();
     const countries=new Map(); stations.forEach(s=>{const code=countryCodeFor(s);if(code) countries.set(code,getMapLocation(s)?.country||s.country||code);});
     const previousCountry=$('country').value;
-    $('country').replaceChildren(new Option('Every country',''),...[...countries.entries()].sort((a,b)=>a[1].localeCompare(b[1])).map(([value,label])=>new Option(label,value)));
+    $('country').replaceChildren(new Option('All countries',''),...[...countries.entries()].sort((a,b)=>a[1].localeCompare(b[1])).map(([value,label])=>new Option(label,value)));
     $('country').value=previousCountry;
     const currentRecords=new Map(stations.map(s=>[s.id,s]));
     const refreshed=s=>getTalkStation(s)||currentRecords.get(s.id)||s;

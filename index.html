@@ -7,11 +7,11 @@
   <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
   <title>Radio Dunya</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=elastic-globe-1">
+  <link rel="stylesheet" href="styles.css?v=station-sheet-1">
   <script defer src="vendor/d3-array.min.js"></script>
   <script defer src="vendor/d3-geo.min.js"></script>
   <script defer src="vendor/topojson-client.min.js"></script>
-  <script type="module" src="app.js?v=elastic-camera-1"></script>
+  <script type="module" src="app.js?v=station-sheet-1"></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -27,6 +27,8 @@
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
   </defs></svg>
 
   <header class="masthead">
@@ -39,17 +41,17 @@
   <main class="workspace">
     <dialog id="station-drawer" class="station-drawer" aria-label="Station browser">
     <div class="library">
-      <div class="drawer-heading"><h2>Stations</h2><button class="about-button" id="about-open" aria-label="About Radio Dunya">About</button><button id="stations-close" class="icon-button" aria-label="Close station browser" autofocus><svg class="icon"><use href="#i-close"/></svg></button></div>
+      <div class="drawer-heading"><span class="drawer-mark" aria-hidden="true"><svg class="icon"><use href="#i-world"/></svg></span><h2>Stations</h2><button class="about-button" id="about-open" aria-label="About Radio Dunya">About</button><button id="stations-close" class="icon-button" aria-label="Close station browser" autofocus><svg class="icon"><use href="#i-close"/></svg></button></div>
       <div class="library-top">
         <div class="tabs" role="tablist" aria-label="Station collections">
-          <button id="tab-explore" class="tab active" role="tab" aria-selected="true" aria-controls="collection" data-tab="explore">Explore</button>
-          <button id="tab-favorites" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="favorites">Favorites <span id="favorite-count">0</span></button>
-          <button id="tab-recent" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="recent">Recent</button>
+          <button id="tab-explore" class="tab active" role="tab" aria-selected="true" aria-controls="collection" data-tab="explore"><svg class="icon" aria-hidden="true"><use href="#i-world"/></svg>Explore</button>
+          <button id="tab-favorites" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="favorites"><svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg>Favorites <span id="favorite-count">0</span></button>
+          <button id="tab-recent" class="tab" role="tab" aria-selected="false" aria-controls="collection" tabindex="-1" data-tab="recent"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>Recent</button>
         </div>
         <label class="search-field"><svg class="icon"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Station, country, or language" aria-label="Search stations" autocomplete="off" spellcheck="false"></label>
         <div class="filters">
-          <select id="country" aria-label="Filter by country"><option value="">Every country</option></select>
-          <select id="genre" aria-label="Filter by genre"><option value="">Every genre</option><option>Jazz</option><option>Classical</option><option>Rock</option><option>Pop</option><option>Electronic</option><option>Folk</option><option>News</option><option>Talk</option></select>
+          <label class="filter-field filter-country"><select id="country" aria-label="Filter by country"><option value="">All countries</option></select><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></label>
+          <label class="filter-field filter-genre"><select id="genre" aria-label="Filter by genre"><option value="">All genres</option><option>Jazz</option><option>Classical</option><option>Rock</option><option>Pop</option><option>Electronic</option><option>Folk</option><option>News</option><option>Talk</option></select><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></label>
         </div>
       </div>
       <section id="collection" class="collection" role="tabpanel" aria-labelledby="tab-explore">
