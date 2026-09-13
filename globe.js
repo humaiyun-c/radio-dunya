@@ -6,7 +6,7 @@ import { getMapLocation, isMappable } from './station-location.js';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
-const MAX_ZOOM = 18;
+const MAX_ZOOM = 54;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
 
