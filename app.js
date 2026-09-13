@@ -2,6 +2,7 @@ import { createGlobe } from './globe.js?v=clear-globe-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
+import { cleanStreamUrl } from './stream-url.js?v=clean-streams-1';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
@@ -422,7 +423,7 @@ function playStation(s,{fromNearby=false}={}) {
   if(homepage) $('station-website').href=homepage; else $('station-website').removeAttribute('href');
   globe.selectStation(s); updateFavoriteButtons();
   document.querySelectorAll('.station-row').forEach(el=>el.classList.toggle('selected',el.dataset.id===s.id));
-  audio.src=s.url;
+  audio.src=cleanStreamUrl(s.url);
   // Manual map/list/random choices establish a new neighborhood. Nearby moves
   // keep the same queue, so Next followed by Previous always returns here.
   if(!fromNearby) rebuildNearbyQueue({anchor:s,preserve:false});
