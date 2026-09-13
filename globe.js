@@ -25,7 +25,7 @@ const locationKey = location => `${location.lat},${location.lon}`;
  * Stations without a resolved location are skipped; raw coordinates are preserved.
  * onSelect and onHover receive the original station object, never a clone.
  */
-export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {} } = {}) {
+export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {}, onBackgroundTap = () => {} } = {}) {
   const { d3, topojson } = globalThis;
   if (!d3?.geoOrthographic || !topojson?.feature || !topojson?.mesh) throw new Error('The local globe libraries did not load.');
   const context = canvas.getContext('2d', { alpha: true });
@@ -367,6 +367,8 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       zoom,
       distance: points.length > 1 ? Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) : 0,
       moved: moved || points.length > 1,
+      canRotate: points.some(insideSphere),
+      started: time,
       samples: [{ ...view, time }],
     };
   }
@@ -375,7 +377,6 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     canvas.classList.remove('keyboard-focus');
     if (event.button !== 0) return;
     const point = localPoint(event);
-    if (!insideSphere(point) && !hitTest(point, 0)) return;
     stopRelease();
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, point);
@@ -395,6 +396,8 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     pointers.set(event.pointerId, point);
     const points = [...pointers.values()];
     if (points.length > 1 && gesture.distance > 0) {
+      gesture.moved = true;
+      if (!gesture.canRotate) return;
       const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
       zoom = clamp(gesture.zoom * distance / gesture.distance, 0.8, MAX_ZOOM);
       gesture.moved = true;
@@ -404,7 +407,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     const dx = point.x - gesture.x;
     const dy = point.y - gesture.y;
     if (Math.hypot(dx, dy) > 5) gesture.moved = true;
-    if (!gesture.moved) return;
+    if (!gesture.moved || !gesture.canRotate) return;
     const sensitivity = 75 / radius;
     const longitude = gesture.view.lon - dx * sensitivity;
     view.lon = wrapLongitude(longitude);
@@ -427,6 +430,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (shouldSelect) {
       const station = hitTest(localPoint(event), event.pointerType === 'touch' ? 10 : 7);
       if (station) onSelect(station);
+      else if (event.timeStamp - finishedGesture.started <= 450) onBackgroundTap();
     }
   }
 

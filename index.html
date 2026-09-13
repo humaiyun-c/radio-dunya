@@ -7,11 +7,11 @@
   <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
   <title>Radio Dunya</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=station-sheet-1">
+  <link rel="stylesheet" href="styles.css?v=clear-globe-1">
   <script defer src="vendor/d3-array.min.js"></script>
   <script defer src="vendor/d3-geo.min.js"></script>
   <script defer src="vendor/topojson-client.min.js"></script>
-  <script type="module" src="app.js?v=station-sheet-1"></script>
+  <script type="module" src="app.js?v=clear-globe-1"></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -31,7 +31,7 @@
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
   </defs></svg>
 
-  <header class="masthead">
+  <header class="masthead" data-chrome>
     <a class="brand" href="./" aria-label="Radio Dunya home"><svg class="icon brand-icon"><use href="#i-world"/></svg><span>Radio Dunya</span></a>
     <div class="header-actions">
       <button id="stations-open" class="stations-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="station-drawer"><svg class="icon"><use href="#i-search"/></svg><span>Stations</span></button>
@@ -68,15 +68,15 @@
     </dialog>
 
     <section class="world" aria-label="Explore the globe">
-      <div class="world-heading"><p>Drag to explore. Pick a station to listen.</p></div>
-      <div class="globe-wrap"><canvas id="globe" tabindex="0" aria-label="Interactive radio globe. Drag to rotate; use arrow keys to rotate, plus and minus to zoom, and Enter to select a station. Stations are also available in the station list."></canvas></div>
-      <div id="globe-tooltip" class="globe-tooltip" hidden></div>
-      <div class="zoom-controls" aria-label="Globe controls"><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button id="reset-globe" aria-label="Reset globe" title="Reset globe"><svg class="icon"><use href="#i-world"/></svg></button><output id="zoom-level" aria-label="Globe zoom" title="Maximum zoom 54×">1×</output></div>
-      <div class="world-bottom"><div class="coordinates"><button id="explore-here" class="explore-here"><svg class="icon"><use href="#i-pin"/></svg>Explore here</button><span id="coordinates">20° N, 15° E</span></div></div>
+      <div class="world-heading" data-chrome><p>Drag to explore. Pick a station to listen.</p></div>
+      <div class="globe-wrap"><canvas id="globe" tabindex="0" aria-label="Interactive radio globe. Drag or use arrow keys to rotate, plus and minus to zoom, and Enter to select a station. Tap empty map space to hide or show controls; Escape shows controls. Stations are also available in the station list."></canvas></div>
+      <div id="globe-tooltip" class="globe-tooltip" data-chrome hidden></div>
+      <div class="zoom-controls" data-chrome aria-label="Globe controls"><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button id="reset-globe" aria-label="Reset globe" title="Reset globe"><svg class="icon"><use href="#i-world"/></svg></button><output id="zoom-level" aria-label="Globe zoom" title="Maximum zoom 54×">1×</output></div>
+      <div class="world-bottom" data-chrome><div class="coordinates"><button id="explore-here" class="explore-here"><svg class="icon"><use href="#i-pin"/></svg>Explore here</button><span id="coordinates">20° N, 15° E</span></div></div>
     </section>
   </main>
 
-  <footer class="player" aria-label="Radio player">
+  <footer class="player" data-chrome aria-label="Radio player">
     <div class="player-content">
       <div class="player-heading">
         <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><p id="playing-location">Choose a station on the globe.</p></div>
@@ -95,7 +95,7 @@
     </div>
     <audio id="audio" preload="none"></audio>
   </footer>
-  <div id="notice" class="notice" role="status" hidden></div>
+  <div id="notice" class="notice" data-chrome role="status" hidden></div>
 
   <dialog id="about-dialog"><button id="about-close" class="icon-button dialog-close" aria-label="Close about"><svg class="icon"><use href="#i-close"/></svg></button><svg class="icon about-globe"><use href="#i-world"/></svg><h2>Radio Dunya</h2><p>A little window into the world.</p><p>Explore live radio with no ads added by this app. Commercials inside a station’s broadcast will still play.</p><p>Stations come from <a href="https://www.radio-browser.info/" target="_blank" rel="noopener noreferrer">Radio Browser</a>, a community directory. This globe includes stations with secure streams your browser can play. Extra coverage across Africa and Asia includes stations without submitted coordinates, placed at an approximate city or capital. When several stations share a dot, tap it to choose from the list. When directory coordinates conflict with a station’s country, a clear city name or the country’s capital supplies an approximate pin. These are marked “Approximate location.” If no fallback is available, the original pin stays. Directory locations can still be incorrect. Some stations may be offline or unavailable in your region.</p><p>The Talk genre is a separate collection selected for news, interviews, debate and spoken culture, checked against broadcaster information. It includes speech stations missing from the general map. Occasional music, jingles and station commercials can still play.</p><p>Your favorites and recent stations stay in this browser. Nothing plays until you choose a station.</p><p class="about-credit">Map: Natural Earth. Location names: <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a>. Made for listening.</p></dialog>
 </body>

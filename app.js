@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=elastic-camera-1';
+import { createGlobe } from './globe.js?v=clear-globe-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
@@ -26,7 +26,29 @@ let transportEligible = [];
 const searchIndex = new Map();
 const stationDrawer = $('station-drawer');
 const optional = (id) => document.getElementById(id);
+const chromeSurfaces = [...document.querySelectorAll('[data-chrome]')];
+let chromeHidden = false;
+function setChromeHidden(hidden) {
+  if (chromeHidden === hidden) return;
+  chromeHidden = hidden;
+  // Move focus before making controls inaccessible; the globe remains usable.
+  if (hidden && chromeSurfaces.some(surface => surface.contains(document.activeElement))) {
+    $('globe').focus({preventScroll:true});
+  }
+  document.body.classList.toggle('chrome-hidden', hidden);
+  for (const surface of chromeSurfaces) {
+    surface.inert = hidden;
+    if (hidden) surface.setAttribute('aria-hidden','true');
+    else surface.removeAttribute('aria-hidden');
+  }
+}
+document.addEventListener('keydown', event => {
+  if (event.key === 'Tab' || (event.key === 'Escape' && !stationDrawer.open && !$('about-dialog').open)) {
+    setChromeHidden(false);
+  }
+}, {capture:true});
 function openStations() {
+  setChromeHidden(false);
   if (!stationDrawer.open) stationDrawer.showModal();
   $('stations-open').setAttribute('aria-expanded','true');
 }
@@ -155,7 +177,9 @@ function moveNearby(direction) {
   updateNearbyButtons();
 }
 const globe = createGlobe($('globe'), {
+  onBackgroundTap: () => setChromeHidden(!chromeHidden),
   onSelect: (station) => {
+    setChromeHidden(false);
     const key=locationKey(station), group=pinGroups.get(key);
     if (group?.length>1) {
       placeScope={key,label:locationLabel(station)};
@@ -366,6 +390,7 @@ function updatePlayingMetadata() {
 function playStation(s,{fromNearby=false}={}) {
   s=getTalkStation(s)||stations.find(record=>record.id===s?.id)||s;
   if (!validStation(s)) return;
+  setChromeHidden(false);
   if(current?.id===s.id&&current.url===s.url&&phase==='playing') return;
   disconnect(); const generation=playGeneration;
   current=s; setPhase('connecting');
