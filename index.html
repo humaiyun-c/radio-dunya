@@ -7,11 +7,11 @@
   <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
   <title>Radio Dunya</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=clear-globe-1">
+  <link rel="stylesheet" href="styles.css?v=station-time-1">
   <script defer src="vendor/d3-array.min.js"></script>
   <script defer src="vendor/d3-geo.min.js"></script>
   <script defer src="vendor/topojson-client.min.js"></script>
-  <script type="module" src="app.js?v=clear-globe-1"></script>
+  <script type="module" src="app.js?v=station-time-1"></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -79,7 +79,7 @@
   <footer class="player" data-chrome aria-label="Radio player">
     <div class="player-content">
       <div class="player-heading">
-        <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><p id="playing-location">Choose a station on the globe.</p></div>
+        <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><div class="playing-details"><p id="playing-location">Choose a station on the globe.</p><span id="station-time" class="station-time" hidden></span></div></div>
         <a id="station-website" class="icon-button station-website" target="_blank" rel="noopener noreferrer" aria-label="Visit station website" hidden><svg class="icon"><use href="#i-link"/></svg></a>
       </div>
       <div class="player-controls">

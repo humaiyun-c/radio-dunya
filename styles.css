@@ -74,6 +74,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .status-dot.error{background:var(--error)}
 .now-playing h2{font-size:21px;line-height:1.25;font-weight:680;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 4px}
 .now-playing p{font-size:13px;line-height:1.5;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+.playing-details{display:flex;align-items:baseline;gap:10px;min-width:0}
+.playing-details p{min-width:0;flex:1}
+.station-time{flex-shrink:0;color:var(--muted);font-size:11px;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
 .station-website{width:35px;height:35px;background:var(--soft)}
 .station-website .icon{width:15px;height:15px}
 .player-controls{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:20px;height:66px}

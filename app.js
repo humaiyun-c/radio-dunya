@@ -376,6 +376,23 @@ function startWatchdog(generation) {
   clearTimeout(connectTimer);
   connectTimer=setTimeout(()=>{if(generation===playGeneration) playbackError('This station is taking too long to connect. Try another, or press play to retry.');},20000);
 }
+const stationTimeFormat=new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:'UTC'});
+let stationTimeTimer;
+function updateStationTime() {
+  clearTimeout(stationTimeTimer);
+  const clock=$('station-time'), location=current&&getMapLocation(current);
+  clock.hidden=!Number.isFinite(location?.lon);
+  if(clock.hidden) { clock.textContent=''; clock.removeAttribute('aria-label'); clock.removeAttribute('title'); return; }
+  // One hour per 15 degrees estimates the station's UTC offset locally.
+  // Formatting the shifted timestamp in UTC avoids the listener's time zone.
+  const offset=Math.round(location.lon/15), now=Date.now();
+  const time=stationTimeFormat.format(new Date(now+offset*3600000));
+  clock.textContent=`≈ ${time} local`;
+  clock.setAttribute('aria-label',`Estimated local time ${time}`);
+  clock.title=`Estimated local time · UTC${offset>=0?'+':'−'}${Math.abs(offset)} from longitude; daylight saving and official time zones may differ.`;
+  if(!document.hidden) stationTimeTimer=setTimeout(updateStationTime,60000-now%60000+20);
+}
+document.addEventListener('visibilitychange',updateStationTime);
 function updatePlayingMetadata() {
   const s=current;
   $('playing-name').textContent=s.name;
@@ -383,6 +400,7 @@ function updatePlayingMetadata() {
   const locationText=[locationLabel(s),mapLocationNote(s)].filter(Boolean).join(' · ') || 'Live radio';
   $('playing-location').textContent=locationText;
   $('playing-location').title=locationText;
+  updateStationTime();
   if('mediaSession' in navigator&&'MediaMetadata' in window) {
     navigator.mediaSession.metadata=new MediaMetadata({title:s.name,artist:locationLabel(s),album:'Radio Dunya'});
   }
