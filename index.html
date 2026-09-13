@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#14344b">
+  <meta name="theme-color" content="#102b3d">
   <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
   <title>Radio Dunya</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=plain-pins-1">
+  <link rel="stylesheet" href="styles.css?v=glass-player-1">
   <script defer src="vendor/d3-array.min.js"></script>
   <script defer src="vendor/d3-geo.min.js"></script>
   <script defer src="vendor/topojson-client.min.js"></script>
-  <script type="module" src="app.js?v=plain-pins-1"></script>
+  <script type="module" src="app.js?v=glass-player-1"></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -20,6 +20,8 @@
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-previous" viewBox="0 0 24 24"><path d="M5 5v14M19 5 7 12l12 7Z"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M19 5v14M5 5l12 7-12 7Z"/></symbol>
     <symbol id="i-random" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3M17 14l4 4-4 4M3 18h3c2 0 3-2 4-4M14 9c1-2 2-3 4-3h3M17 2l4 4-4 4"/></symbol>
     <symbol id="i-volume" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
@@ -71,17 +73,27 @@
       <div class="globe-wrap"><canvas id="globe" tabindex="0" aria-label="Interactive radio globe. Drag to rotate; use arrow keys to rotate, plus and minus to zoom, and Enter to select a station. Stations are also available in the station list."></canvas></div>
       <div id="globe-tooltip" class="globe-tooltip" hidden></div>
       <div class="zoom-controls" aria-label="Globe controls"><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button id="reset-globe" aria-label="Reset globe" title="Reset globe"><svg class="icon"><use href="#i-world"/></svg></button><output id="zoom-level" aria-label="Globe zoom" title="Maximum zoom 54×">1×</output></div>
-      <div class="world-bottom"><div class="coordinates"><span id="coordinates">20° N, 15° E</span><button id="explore-here" class="explore-here"><svg class="icon"><use href="#i-pin"/></svg>Explore here</button></div><button id="surprise" class="surprise"><svg class="icon"><use href="#i-random"/></svg>Surprise me</button></div>
+      <div class="world-bottom"><div class="coordinates"><button id="explore-here" class="explore-here"><svg class="icon"><use href="#i-pin"/></svg>Explore here</button><span id="coordinates">20° N, 15° E</span></div></div>
     </section>
   </main>
 
   <footer class="player" aria-label="Radio player">
-    <div class="station-art" aria-hidden="true"><svg class="icon"><use href="#i-world"/></svg></div>
-    <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><p id="playing-location">Choose a station to start your journey.</p></div>
-    <button id="player-favorite" class="icon-button player-favorite" disabled aria-label="Save station to favorites" aria-pressed="false"><svg class="icon"><use href="#i-heart"/></svg></button>
-    <div class="transport"><button id="play-toggle" class="play-toggle" disabled aria-label="Play"><svg class="icon"><use id="play-icon" href="#i-play"/></svg></button><button id="next-station" class="icon-button" aria-label="Play a random station" title="Play a random station"><svg class="icon"><use href="#i-random"/></svg></button></div>
-    <label class="volume"><svg class="icon"><use href="#i-volume"/></svg><input id="volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value="0.6"></label>
-    <a id="station-website" class="icon-button station-website" target="_blank" rel="noopener noreferrer" aria-label="Visit station website" hidden><svg class="icon"><use href="#i-link"/></svg></a>
+    <div class="player-content">
+      <div class="player-heading">
+        <div class="now-playing"><div class="playing-state"><span class="status-dot" id="play-indicator"></span><span id="play-state" role="status" aria-live="polite">Ready when you are</span></div><h2 id="playing-name">Where will you listen?</h2><p id="playing-location">Choose a station on the globe.</p></div>
+        <a id="station-website" class="icon-button station-website" target="_blank" rel="noopener noreferrer" aria-label="Visit station website" hidden><svg class="icon"><use href="#i-link"/></svg></a>
+      </div>
+      <div class="player-controls">
+        <button id="player-favorite" class="icon-button player-favorite" disabled aria-label="Save station to favorites" aria-pressed="false"><svg class="icon"><use href="#i-heart"/></svg></button>
+        <div class="transport">
+          <button id="previous-station" class="icon-button skip-button" disabled aria-label="Previous nearby station" title="Previous nearby station"><svg class="icon"><use href="#i-previous"/></svg></button>
+          <button id="play-toggle" class="play-toggle" disabled aria-label="Play"><svg class="icon"><use id="play-icon" href="#i-play"/></svg></button>
+          <button id="next-station" class="icon-button skip-button" disabled aria-label="Next nearby station" title="Next nearby station"><svg class="icon"><use href="#i-next"/></svg></button>
+        </div>
+        <button id="surprise" class="icon-button surprise" aria-label="Play a random station" title="Surprise me"><svg class="icon"><use href="#i-random"/></svg></button>
+      </div>
+      <label class="volume"><svg class="icon"><use href="#i-volume"/></svg><input id="volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value="0.6"></label>
+    </div>
     <audio id="audio" preload="none"></audio>
   </footer>
   <div id="notice" class="notice" role="status" hidden></div>

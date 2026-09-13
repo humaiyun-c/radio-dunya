@@ -1,6 +1,6 @@
-import { createGlobe } from './globe.js?v=plain-pins-1';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=plain-pins-1';
-import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=plain-pins-1';
+import { createGlobe } from './globe.js?v=glass-player-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
+import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,8 +18,14 @@ let talkError = false, talkCount = 0, communityDirectory = null;
 let regionalStations = [], regionalError = false, placeScope = null, pinGroups = new Map();
 let visibleCount = 60, near = null, center = {lat:20,lon:15}, phase = 'idle';
 let playGeneration = 0, connectTimer, noticeTimer, directoryGeneration = 0;
+// The transport queue is deliberately local: up to 24 stations within 250 km of
+// its fixed anchor.  Sparse filters fall back to the 12 nearest mapped stations,
+// rather than silently turning Next into a trip around the whole globe.
+let nearbyQueue = [], nearbyIndex = -1, nearbyAnchor = null, nearbySignature = '';
+let transportEligible = [];
 const searchIndex = new Map();
 const stationDrawer = $('station-drawer');
+const optional = (id) => document.getElementById(id);
 function openStations() {
   if (!stationDrawer.open) stationDrawer.showModal();
   $('stations-open').setAttribute('aria-expanded','true');
@@ -100,6 +106,78 @@ function distance(s, origin) {
   const rad = Math.PI / 180;
   return 1 - (Math.sin(location.lat*rad)*Math.sin(origin.lat*rad) + Math.cos(location.lat*rad)*Math.cos(origin.lat*rad)*Math.cos((location.lon-origin.lon)*rad));
 }
+function distanceKm(s, origin) {
+  // distance() is the sortable 1-cos(angle) value, not an angular distance.
+  return Math.acos(Math.max(-1,Math.min(1,1-distance(s,origin)))) * 6371;
+}
+function stationOrder(a,b,origin) {
+  return distanceKm(a,origin)-distanceKm(b,origin)
+    || a.name.localeCompare(b.name,undefined,{sensitivity:'base'})
+    || a.id.localeCompare(b.id);
+}
+function updateNearbyButtons() {
+  const previous=optional('previous-station'), next=optional('next-station');
+  const canPrevious=nearbyIndex>0;
+  const canNext=nearbyIndex>=0 ? nearbyIndex<nearbyQueue.length-1 : nearbyQueue.length>0;
+  if(previous) {
+    previous.disabled=!canPrevious;
+    previous.setAttribute('aria-label','Previous nearby station');
+    previous.title='Previous nearby station';
+  }
+  if(next) {
+    next.disabled=!canNext;
+    next.setAttribute('aria-label','Next nearby station');
+    next.title='Next nearby station';
+  }
+}
+function sameCoordinate(a,b) { return Boolean(a&&b&&a.lat===b.lat&&a.lon===b.lon); }
+function anchorCoordinate(anchor) {
+  if(!anchor?.id&&Number.isFinite(anchor?.lat)&&Number.isFinite(anchor?.lon)) return {lat:anchor.lat,lon:anchor.lon};
+  const location=anchor&&getMapLocation(anchor);
+  return location ? {lat:location.lat,lon:location.lon} : {...center};
+}
+function rebuildNearbyQueue({anchor = current || center, retainCurrent = true, preserve = false, lock = false} = {}) {
+  const nextAnchor=anchorCoordinate(anchor);
+  const signature=transportEligible.map(s=>{
+    const location=getMapLocation(s);
+    return `${s.id}\u0000${s.url}\u0000${location?.lat??''}\u0000${location?.lon??''}`;
+  }).join('\u0001');
+  // Search and an exact shared-pin scope only redraw the map. They must not
+  // reorder transport or erase the current index during a next/previous move.
+  if(preserve&&(lock||(signature===nearbySignature&&sameCoordinate(nextAnchor,nearbyAnchor)))) { updateNearbyButtons(); return; }
+  nearbyAnchor=nextAnchor;
+  nearbySignature=signature;
+  const candidates=transportEligible.filter(isMappable).sort((a,b)=>stationOrder(a,b,nearbyAnchor));
+  const local=candidates.filter(s=>distanceKm(s,nearbyAnchor)<=250);
+  nearbyQueue=(local.length ? local.slice(0,24) : candidates.slice(0,12));
+  if(retainCurrent&&current&&isMappable(current)&&transportEligible.some(s=>s.id===current.id&&s.url===current.url)) {
+    const currentIndex=nearbyQueue.findIndex(s=>s.id===current.id&&s.url===current.url);
+    // Keep the manually selected identity even where many stations share a pin
+    // and the local cap would otherwise omit it by alphabetical tie-break.
+    if(currentIndex<0) nearbyQueue=[current,...nearbyQueue.filter(s=>s.id!==current.id||s.url!==current.url)].slice(0,24);
+    nearbyIndex=nearbyQueue.findIndex(s=>s.id===current.id&&s.url===current.url);
+  } else nearbyIndex=-1;
+  updateNearbyButtons();
+}
+function moveNearby(direction) {
+  // The globe can move without rendering the list, so take its latest center
+  // only at the moment a listener first uses transport.
+  if (!current) rebuildNearbyQueue({anchor:center,retainCurrent:false});
+  // Transport ignores title search and an exact-dot drawer scope. Clear those
+  // transient views before tuning, while retaining the already-built queue.
+  if($('search').value||placeScope) {
+    $('search').value=''; placeScope=null; visibleCount=60;
+    render({preserveNearby:true});
+    $('collection').scrollTop=0;
+  }
+  const nextIndex=nearbyIndex<0 ? (direction>0 ? 0 : -1) : nearbyIndex+direction;
+  if(nextIndex<0||nextIndex>=nearbyQueue.length) return;
+  nearbyIndex=nextIndex;
+  const station=nearbyQueue[nearbyIndex];
+  globe.focusStation(station);
+  playStation(station,{fromNearby:true});
+  updateNearbyButtons();
+}
 const globe = createGlobe($('globe'), {
   onSelect: (station) => {
     const key=locationKey(station), group=pinGroups.get(key);
@@ -152,7 +230,7 @@ function setTab(next) {
     button.classList.toggle('active',active); button.setAttribute('aria-selected',String(active)); button.tabIndex = active ? 0 : -1;
   });
   $('collection').setAttribute('aria-labelledby',`tab-${tab}`);
-  render();
+  render({preserveNearby:false});
   $('collection').scrollTop=0;
 }
 function row(s) {
@@ -173,14 +251,15 @@ function renderRows() {
   $('show-more').hidden=filtered.length<=visibleCount;
   updateFavoriteButtons();
 }
-function render() {
+function render({preserveNearby = true, lockNearby = false} = {}) {
   const terms = fold($('search').value).trim().split(/\s+/).filter(Boolean);
   const country = $('country').value, genre=fold($('genre').value);
   const records = tab==='favorites' ? [...favorites.values()] : tab==='recent' ? recent : stations;
   // A saved UUID can outlive its old stream; always use the reviewed record once available.
   const source = [...new Map(records.map(s=>{const reviewed=getTalkStation(s)||s;return [reviewed.id,reviewed];})).values()];
   const talk = genre==='talk';
-  filtered=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||(talk ? isTalkStation(s) : fold(s.tags).includes(genre))) && terms.every(term=>textFor(s).includes(term)));
+  transportEligible=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||(talk ? isTalkStation(s) : fold(s.tags).includes(genre))));
+  filtered=transportEligible.filter(s=>terms.every(term=>textFor(s).includes(term)));
   if(placeScope) filtered=filtered.filter(s=>locationKey(s)===placeScope.key);
   pinGroups=new Map();
   for(const s of filtered){const key=locationKey(s);if(!key)continue;if(!pinGroups.has(key))pinGroups.set(key,[]);pinGroups.get(key).push(s);}
@@ -200,8 +279,11 @@ function render() {
   else if (!filtered.length) message=terms.length||country||genre ? 'No stations match these filters. Try another search or reset the filters.' : tab==='favorites' ? 'Keep a little of the world. Tap a heart to save a station here.' : tab==='recent' ? 'Your last 30 stations will appear here after you listen.' : 'No playable stations were returned. Try the directory again.';
   status.textContent=message; status.hidden=!message;
   $('retry-directory').hidden=!(!loading&&((talk&&talkError)||(tab==='explore'&&(loadError||regionalError))));
-  $('surprise').disabled=$('next-station').disabled=!filtered.length;
+  const surpriseButton=optional('surprise');
+  if(surpriseButton) surpriseButton.disabled=!filtered.length;
   globe.setStations(filtered); renderRows();
+  // Filter and catalog changes retain a selected station as the local anchor.
+  rebuildNearbyQueue({anchor:nearbyAnchor||current||center,preserve:preserveNearby,lock:lockNearby});
 }
 function applyDirectory(data, reviewed) {
     talkCount=reviewed.length;
@@ -294,12 +376,14 @@ function updatePlayingMetadata() {
   const s=current;
   $('playing-name').textContent=s.name;
   $('playing-name').title=s.name;
-  $('playing-location').textContent=[locationLabel(s),mapLocationNote(s),s.codec,s.bitrate?`${s.bitrate} kbps`:''].filter(Boolean).join(' · ');
+  const locationText=[locationLabel(s),mapLocationNote(s)].filter(Boolean).join(' · ') || 'Live radio';
+  $('playing-location').textContent=locationText;
+  $('playing-location').title=locationText;
   if('mediaSession' in navigator&&'MediaMetadata' in window) {
     navigator.mediaSession.metadata=new MediaMetadata({title:s.name,artist:locationLabel(s),album:'Radio Dunya'});
   }
 }
-function playStation(s) {
+function playStation(s,{fromNearby=false}={}) {
   s=getTalkStation(s)||stations.find(record=>record.id===s?.id)||s;
   if (!validStation(s)) return;
   if(current?.id===s.id&&current.url===s.url&&phase==='playing') return;
@@ -313,6 +397,9 @@ function playStation(s) {
   globe.selectStation(s); updateFavoriteButtons();
   document.querySelectorAll('.station-row').forEach(el=>el.classList.toggle('selected',el.dataset.id===s.id));
   audio.src=s.url;
+  // Manual map/list/random choices establish a new neighborhood. Nearby moves
+  // keep the same queue, so Next followed by Previous always returns here.
+  if(!fromNearby) rebuildNearbyQueue({anchor:s,preserve:false});
   audio.play().catch(error=>{
     if(generation!==playGeneration) return;
     playbackError(error.name==='NotAllowedError'?'Your browser needs another tap on Play to start audio.':undefined);
@@ -324,7 +411,7 @@ audio.addEventListener('playing',()=>{
   if(!current||!audio.getAttribute('src')||audio.paused) return;
   clearTimeout(connectTimer); setPhase('playing');
   recent=[current,...recent.filter(s=>s.id!==current.id)].slice(0,30); persist();
-  if(tab==='recent') render();
+  if(tab==='recent') render({lockNearby:true});
   if(lastCounted!==current.id){lastCounted=current.id;recordStationClick(current.id).catch(()=>{});}
 });
 audio.addEventListener('waiting',()=>{if(current&&audio.getAttribute('src')&&!audio.paused){setPhase('connecting','Buffering…');startWatchdog(playGeneration);}});
@@ -347,28 +434,35 @@ document.querySelectorAll('[data-tab]').forEach(button=>{
   });
 });
 let searchTimer;
-function refreshResults() {visibleCount=60;render();$('collection').scrollTop=0;}
+function refreshResults({rebuildNearby=false}={}) {visibleCount=60;render({preserveNearby:!rebuildNearby});$('collection').scrollTop=0;}
 $('search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refreshResults,100);});
-['country','genre'].forEach(id=>$(id).addEventListener('change',()=>{placeScope=null;refreshResults();}));
-$('clear-filters').addEventListener('click',()=>{$('search').value='';$('country').value='';$('genre').value='';near=null;placeScope=null;refreshResults();});
+['country','genre'].forEach(id=>$(id).addEventListener('change',()=>{placeScope=null;refreshResults({rebuildNearby:true});}));
+$('clear-filters').addEventListener('click',()=>{$('search').value='';$('country').value='';$('genre').value='';near=null;placeScope=null;refreshResults({rebuildNearby:true});});
 $('show-more').addEventListener('click',()=>{visibleCount+=60;renderRows();});
 $('retry-directory').addEventListener('click',loadDirectory);
 $('explore-here').addEventListener('click',()=>{near={...center};setTab('explore');openStations();$('collection').scrollTop=0;});
 $('zoom-in').addEventListener('click',()=>globe.zoomBy(1.25));
 $('zoom-out').addEventListener('click',()=>globe.zoomBy(0.8));
 $('reset-globe').addEventListener('click',()=>{globe.reset();near=null;placeScope=null;render();});
-$('surprise').addEventListener('click',surprise); $('next-station').addEventListener('click',surprise);
-$('play-toggle').addEventListener('click',()=>{if(phase==='playing'||phase==='connecting') pause(); else if(current) playStation(current);});
+optional('surprise')?.addEventListener('click',surprise);
+optional('previous-station')?.addEventListener('click',()=>moveNearby(-1));
+optional('next-station')?.addEventListener('click',()=>moveNearby(1));
+$('play-toggle').addEventListener('click',()=>{if(phase==='playing'||phase==='connecting') pause(); else if(current) playStation(current,{fromNearby:true});});
 $('player-favorite').addEventListener('click',()=>toggleFavorite(current));
 audio.volume=Number.isFinite(saved.volume)?Math.max(0,Math.min(1,saved.volume)):0.6;
 $('volume').value=audio.volume;
+// Some mobile browsers leave output volume to the device buttons.
+const initialVolume=audio.volume, volumeProbe=initialVolume===0.5?0.6:0.5;
+audio.volume=volumeProbe;
+document.querySelector('.volume').hidden=Math.abs(audio.volume-volumeProbe)>0.001;
+audio.volume=initialVolume;
 $('volume').addEventListener('input',()=>{audio.volume=Number($('volume').value);});
 $('volume').addEventListener('change',persist);
 $('about-open').addEventListener('click',()=>$('about-dialog').showModal());
 $('about-close').addEventListener('click',()=>$('about-dialog').close());
 $('about-dialog').addEventListener('click',event=>{if(event.target===$('about-dialog')){const r=$('about-dialog').getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)$('about-dialog').close();}});
 if('mediaSession' in navigator) {
-  for(const [action,handler] of Object.entries({play:()=>current&&playStation(current),pause,stop:pause,nexttrack:surprise})) {
+  for(const [action,handler] of Object.entries({play:()=>current&&playStation(current,{fromNearby:true}),pause,stop:pause,previoustrack:()=>moveNearby(-1),nexttrack:()=>moveNearby(1)})) {
     try{navigator.mediaSession.setActionHandler(action,handler);}catch{/* Optional platform action. */}
   }
 }
