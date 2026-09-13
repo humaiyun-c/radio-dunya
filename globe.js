@@ -6,6 +6,7 @@ import { getMapLocation, isMappable } from './station-location.js';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
+const MAX_ZOOM = 18;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
 
@@ -250,7 +251,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     const points = [...pointers.values()];
     if (points.length > 1 && gesture.distance > 0) {
       const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
-      zoom = clamp(gesture.zoom * distance / gesture.distance, 0.8, 6);
+      zoom = clamp(gesture.zoom * distance / gesture.distance, 0.8, MAX_ZOOM);
       gesture.moved = true;
       invalidate();
       return;
@@ -280,7 +281,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   function zoomBy(factor) {
     if (!Number.isFinite(factor) || factor <= 0) return;
-    zoom = clamp(zoom * factor, 0.8, 6);
+    zoom = clamp(zoom * factor, 0.8, MAX_ZOOM);
     hover(null);
     invalidate();
   }
