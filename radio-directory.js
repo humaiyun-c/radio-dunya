@@ -1,4 +1,4 @@
-import { isExcludedStation } from './catalog-policy.js?v=progressive-dots-1';
+import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const mirrorName = /^[a-z0-9-]+\.api\.radio-browser\.info$/;
@@ -65,7 +65,7 @@ function normalize(rows) {
     const url = safeUrl(row.url_resolved || row.url, true);
     const name = clean(row.name, 400);
     const codec = clean(row.codec, 24).toUpperCase();
-    if (isExcludedStation({ countrycode: row.countrycode, name })) continue;
+    if (isExcludedStation({ countrycode: row.countrycode, name, url: row.url, url_resolved: row.url_resolved, homepage: row.homepage })) continue;
     if (!uuid.test(id) || !name || !url || seenIds.has(id) || seenUrls.has(url)) continue;
     if (Number(row.hls) !== 0 || Number(row.lastcheckok) !== 1 || !['MP3', 'AAC', 'AAC+', 'OGG', 'OPUS'].includes(codec)) continue;
     if (row.geo_lat == null || row.geo_long == null || row.geo_lat === '' || row.geo_long === '') continue;
@@ -194,7 +194,7 @@ function normalizeRegional(data) {
     const name = clean(row.name, 400);
     const codec = clean(row.codec, 24).toUpperCase();
     const safe = safeUrl(row.url, true);
-    if (isExcludedStation({ countryCode, name })) continue;
+    if (isExcludedStation({ countryCode, name, url: row.url, homepage: row.homepage })) continue;
     if (!uuid.test(id) || !/^[A-Z]{2}$/.test(countryCode) || !name || !safe ||
         !['MP3', 'AAC', 'AAC+', 'OGG', 'OPUS'].includes(codec)) continue;
     const stream = new URL(safe);

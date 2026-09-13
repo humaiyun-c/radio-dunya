@@ -1,9 +1,9 @@
-import { createGlobe } from './globe.js?v=all-dots-1';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=progressive-dots-1';
+import { createGlobe } from './globe.js?v=gulf-local-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=gulf-local-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=progressive-dots-1';
+import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=gulf-local-1';
 import { cleanStreamUrl } from './stream-url.js?v=clean-streams-1';
-import { isExcludedStation } from './catalog-policy.js?v=progressive-dots-1';
+import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
@@ -197,7 +197,6 @@ const globe = createGlobe($('globe'), {
   },
   onViewChange: (view) => {
     center = view;
-    $('map-instructions').textContent=view.zoom>5?'Zoom closer. Tap a dot to listen.':'Drag to explore. Pick a station to listen.';
     const latitude=`${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'South':'North'}`;
     const longitude=`${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'West':'East'}`;
     $('coordinates').textContent = `${latitude} · ${longitude}`;
@@ -299,7 +298,7 @@ function render({preserveNearby = true, lockNearby = false} = {}) {
   $('retry-directory').hidden=!(!loading&&((talk&&talkError)||(tab==='explore'&&(loadError||regionalError))));
   const surpriseButton=optional('surprise');
   if(surpriseButton) surpriseButton.disabled=!filtered.length;
-  globe.setStations(filtered, stations); renderRows();
+  globe.setStations(filtered); renderRows();
   // Filter and catalog changes retain a selected station as the local anchor.
   rebuildNearbyQueue({anchor:nearbyAnchor||current||center,preserve:preserveNearby,lock:lockNearby});
 }

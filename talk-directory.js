@@ -1,4 +1,4 @@
-import { isExcludedStation } from './catalog-policy.js?v=progressive-dots-1';
+import { isExcludedStation } from './catalog-policy.js?v=gulf-local-1';
 
 // Source: radio-directory.js:54 - keep the existing normalized station contract.
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,7 +51,7 @@ function normalize(data) {
     const talkFormat = clean(row.talkFormat, 80);
     const evidence = safeUrl(row.evidence);
     const countryCode = typeof row.countryCode === 'string' ? row.countryCode.trim().toUpperCase() : '';
-    if (isExcludedStation({ countryCode, name })) continue;
+    if (isExcludedStation({ countryCode, name, url: row.url, homepage: row.homepage })) continue;
     if (!uuid.test(id) || !url || !name || !playableCodecs.has(codec) || !talkFormat || !evidence || !/^[A-Z]{2}$/.test(countryCode)) continue;
     if (byId.has(id) || byUrl.has(url) || /\.m3u8$/i.test(new URL(url).pathname)) continue;
     // Source: station-location.js:98 - missing points use its city/capital fallback.

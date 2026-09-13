@@ -3,12 +3,10 @@
 // This module redraws after input/data changes and during gesture/navigation springs.
 
 import { getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { canSpreadPins, spreadPins, stationPositions, showEveryStation, cloudLocation } from './pin-layout.js?v=all-dots-1';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
 const MAX_ZOOM = 4096;
-const stationKey = station => `${station.id}\u0000${station.url}`;
 // Apple recommends direct manipulation and gives 80% damping for momentum gestures:
 // https://developer.apple.com/videos/play/wwdc2018/803/
 // Response and travel below are tuned for this globe, not prescribed Apple values.
@@ -19,7 +17,7 @@ const RELEASE_PROJECTION = 0.12;
 const RELEASE_PEAK = 1.03;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
-const locationKey = location => `${location.lat},${location.lon}`;
+const locationKey = (location, countryCode) => `${countryCode}:${location.lat},${location.lon}`;
 
 /**
  * Create an event-driven globe. Load the three vendor scripts before this module.
@@ -27,7 +25,7 @@ const locationKey = location => `${location.lat},${location.lon}`;
  * Stations without a resolved location are skipped; raw coordinates are preserved.
  * onSelect and onHover receive the original station object, never a clone,
  * followed by {expanded, stations}: a dot selects one station directly, or a
- * compact marker supplies the original stations at nearby locations.
+ * circle supplies the original stations sharing one resolved location.
  */
 export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {}, onBackgroundTap = () => {} } = {}) {
   const { d3, topojson } = globalThis;
@@ -57,10 +55,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let land = null;
   let borders = null;
   let groups = [];
-  let locationGroups = new Map();
   let stationStreams = new Map();
-  let layoutCatalog = null;
-  let displayLocations = new Map();
   let visiblePins = [];
   let selected = null;
   let hovered = null;
@@ -216,16 +211,8 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.arc(x, y, r, 0, Math.PI * 2);
   }
 
-  function displayLocation(station) {
+  function projectedStation(station, margin = 12) {
     const location = getMapLocation(station);
-    const layout = displayLocations.get(stationKey(station));
-    // As the map grows, cloud dots separate in pixels while drawing closer to
-    // their actual city geographically. Focus uses this same display position.
-    if (showEveryStation(location?.countryCode || station.countryCode)) return cloudLocation(layout,zoom) || location;
-    return zoom > 5 ? layout || location : location;
-  }
-
-  function projectedStation(station, margin = 12, location = displayLocation(station)) {
     if (!location) return null;
     const lat = location.lat * RADIANS;
     const centerLat = view.lat * RADIANS;
@@ -299,20 +286,11 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     const pinRadius = Math.min(3.3, 1.75 + Math.log2(zoom + 1) * 0.35);
     const projected = [];
     for (const group of groups) {
-      if (zoom > 5 && group.spread) {
-        for (const station of group.stations) {
-          const point = projectedStation(station, pinRadius + 8);
-          if (point) projected.push({...point, stations:[station], spread:true, countryCode:group.countryCode});
-        }
-      } else {
-        const point = projectedStation(group.station, pinRadius + 8, group.individual ? displayLocation(group.station) : getMapLocation(group.station));
-        if (point) projected.push({...point, stations:group.stations, spread:group.spread, countryCode:group.countryCode,
-          individual:group.individual, cloud:group.cloud});
-      }
+      const point = projectedStation(group.station, pinRadius + 8);
+      if (point) projected.push({...point, stations:group.stations, expanded:group.stations.length===1,
+        clustered:group.stations.length>1, countryCode:group.countryCode});
     }
-    visiblePins = (zoom > 5 ? spreadPins(projected) : projected.map(point => ({...point, expanded:false,
-      clustered:false,canZoom:point.spread&&point.stations.length>1})))
-      .map(point => ({...point, radius:point.clustered ? 8 : pinRadius}));
+    visiblePins = projected.map(point => ({...point, radius:point.clustered ? 7 : pinRadius}));
     context.beginPath();
     for (const pin of visiblePins) if (!pin.clustered) circle(pin.x, pin.y, pinRadius);
     context.fillStyle = palette.pin;
@@ -320,26 +298,26 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.fill();
     context.globalAlpha = 1;
 
-    // A small bunch of dots invites another zoom; individual stations resolve
-    // progressively without rings, numbers, or lines crossing the map.
+    // Shared stations stay at their resolved location at every zoom. A small
+    // circle-and-dot marker opens the chooser without shifting any coordinates.
     context.beginPath();
-    for (const pin of visiblePins) if (pin.clustered) {
-      circle(pin.x - 3.2, pin.y + 1.8, 2.4);
-      circle(pin.x + 3.2, pin.y + 1.8, 2.4);
-      if (pin.stations.length > 2) circle(pin.x, pin.y - 3.4, 2.4);
-    }
+    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 6);
+    context.fillStyle = palette.ocean;
+    context.fill();
+    context.strokeStyle = palette.pin;
+    context.lineWidth = 1.2;
+    context.stroke();
+    context.beginPath();
+    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 2.1);
     context.fillStyle = palette.pin;
     context.fill();
 
     for (const station of [hovered, selected]) {
       if (!station||stationStreams.get(station.id)!==station.url) continue;
-      const location = getMapLocation(station);
-      const group = location && locationGroups.get(locationKey(location));
-      if (!group) continue;
       const point = visiblePins.find(pin => pin.stations.some(member => member.id === station.id && member.url === station.url));
       if (!point) continue;
       const isSelected = station === selected;
-      if (point.canZoom && !isSelected) continue;
+      if (point.clustered && !isSelected) continue;
       context.beginPath();
       circle(point.x, point.y, isSelected ? 10 : 7);
       context.lineWidth = isSelected ? 1.7 : 1;
@@ -373,7 +351,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
         const distance = (point.x - pin.x) ** 2 + (point.y - pin.y) ** 2;
         if (distance <= pin.radius ** 2 && distance < nearestDistance) {nearest=pin;nearestDistance=distance;}
       }
-      if (nearest) return selectionFor(nearest);
+      if (nearest) return nearest;
     }
     let closest = null;
     let distanceSquared = tolerance * tolerance;
@@ -385,16 +363,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
         closest = pin;
       }
     }
-    return selectionFor(closest);
-  }
-
-  function selectionFor(pin) {
-    if (!pin?.individual) return pin;
-    // Render all dots, but let a crowded tap open the same chooser as Europe.
-    // Once zoom separates them, a dot can select its individual station.
-    const members = zoom <= 3 + 1e-8 ? pin.cloud : visiblePins.filter(other => other.individual &&
-      other.countryCode === pin.countryCode && Math.hypot(other.x-pin.x,other.y-pin.y) < 8).map(other=>other.station);
-    return {...pin, stations:members, expanded:members.length===1};
+    return closest;
   }
 
   function hover(pin) {
@@ -419,7 +388,6 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       y: points[0].y,
       view: { ...view },
       zoom,
-      zoomAnchor: points.length > 1 ? captureZoomAnchor({x:(points[0].x+points[1].x)/2,y:(points[0].y+points[1].y)/2}) : null,
       distance: points.length > 1 ? Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) : 0,
       moved: moved || points.length > 1,
       canRotate: points.some(insideSphere),
@@ -456,7 +424,6 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       if (!gesture.canRotate) return;
       const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
       zoom = clamp(gesture.zoom * distance / gesture.distance, 0.8, MAX_ZOOM);
-      holdZoomAnchor(gesture.zoomAnchor,gesture.view);
       gesture.moved = true;
       invalidate(true);
       return;
@@ -504,28 +471,10 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     onSelect(pin.station, {expanded:pin.expanded, stations:pin.stations});
   }
 
-  function captureZoomAnchor(point = {x:width/2,y:height/2}) {
-    let closest=null, distance=144;
-    for(const pin of visiblePins) {
-      const next=(pin.x-point.x)**2+(pin.y-point.y)**2;
-      if(pin.individual&&next<distance){closest=pin;distance=next;}
-    }
-    return closest ? {station:closest.station,location:displayLocation(closest.station)} : null;
-  }
-
-  function holdZoomAnchor(anchor, previousView) {
-    if(!anchor)return;
-    const location=displayLocation(anchor.station);
-    view.lon=wrapLongitude(previousView.lon+wrapLongitude(location.lon-anchor.location.lon));
-    view.lat=clamp(previousView.lat+location.lat-anchor.location.lat,-89.5,89.5);
-  }
-
   function zoomBy(factor) {
     if (!Number.isFinite(factor) || factor <= 0) return;
     stopRelease();
-    const anchor=captureZoomAnchor(), previousView={...view};
     zoom = clamp(zoom * factor, 0.8, MAX_ZOOM);
-    holdZoomAnchor(anchor,previousView);
     hover(null);
     invalidate(true);
   }
@@ -600,44 +549,20 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   invalidate(true);
   return {
-    setStations(nextStations, catalog = nextStations) {
-      if (layoutCatalog !== catalog) {
-        layoutCatalog = catalog;
-        displayLocations = stationPositions(Array.isArray(catalog) ? catalog : [], getMapLocation);
-      }
-      // Old favorites can outlive the current directory. Include their layout
-      // without disturbing already known catalog positions.
-      const extras = (Array.isArray(nextStations) ? nextStations : []).filter(station => !displayLocations.has(stationKey(station)));
-      if (extras.length) for (const [key,location] of stationPositions(extras,getMapLocation)) displayLocations.set(key,location);
-      locationGroups = new Map();
+    setStations(nextStations) {
+      const locationGroups = new Map();
       stationStreams = new Map();
       for (const station of Array.isArray(nextStations) ? nextStations : []) {
         const location = getMapLocation(station);
         if (!location) continue;
-        const key = locationKey(location);
-        const countryCode = String(location.countryCode || station.countryCode || '').toUpperCase();
-        if (!locationGroups.has(key)) locationGroups.set(key, {station, stations:[], spread:true, countryCode});
+        const countryCode = String(location.countryCode || station.countryCode || '').trim().toUpperCase();
+        const key = locationKey(location,countryCode);
+        if (!locationGroups.has(key)) locationGroups.set(key, {station, stations:[], countryCode});
         const group = locationGroups.get(key);
         group.stations.push(station);
-        group.spread &&= countryCode === group.countryCode && canSpreadPins(countryCode);
         stationStreams.set(station.id,station.url);
       }
-      // Always draw one dot per African/Asian station, even when dots overlap at
-      // world scale. The other regions retain their existing grouping policy.
-      groups = [...locationGroups.values()].flatMap(group => {
-        const singles = [], remaining = [], clouds = new Map();
-        for (const station of group.stations) {
-          const countryCode = String(getMapLocation(station)?.countryCode || station.countryCode || '').trim().toUpperCase();
-          if (showEveryStation(countryCode)) {
-            if(!clouds.has(countryCode)) clouds.set(countryCode,[]);
-            clouds.get(countryCode).push(station);
-          } else remaining.push(station);
-        }
-        for(const [countryCode,cloud] of clouds) for(const station of cloud)
-          singles.push({station, stations:[station], cloud, spread:false, countryCode, individual:true});
-        if (remaining.length) singles.push({...group, station:remaining[0], stations:remaining});
-        return singles;
-      }).sort((a, b) => a.stations.length - b.stations.length);
+      groups = [...locationGroups.values()].sort((a,b)=>a.stations.length-b.stations.length);
       // Discard old hit targets immediately when a filter changes, before redraw.
       visiblePins = [];
       pendingTap = null;
@@ -649,7 +574,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       invalidate();
     },
     focusStation(station) {
-      const location = displayLocation(station);
+      const location = getMapLocation(station);
       if (!location) return;
       animateView(location);
     },
