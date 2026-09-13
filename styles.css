@@ -53,8 +53,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .zoom-controls .icon{width:19px;height:19px}
 .zoom-controls output{padding:0 0 13px;text-align:center;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .world-bottom{position:absolute;bottom:calc(194px + env(safe-area-inset-bottom,0px));left:26px;right:26px;pointer-events:none}
-.coordinates{display:flex;align-items:center;gap:13px}
-.coordinates>span{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.coordinates{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.coordinates>span{font-size:11px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 1px 4px var(--globe-ocean)}
 .explore-here{display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:20px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:11px;font-weight:500;white-space:nowrap;pointer-events:auto}
 .explore-here .icon{width:14px;height:14px}
 .explore-here:hover{background:var(--glass-hover)}

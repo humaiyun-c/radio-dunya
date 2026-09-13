@@ -188,7 +188,10 @@ const globe = createGlobe($('globe'), {
   },
   onViewChange: (view) => {
     center = view;
-    $('coordinates').textContent = `${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'S':'N'}, ${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'W':'E'}`;
+    const latitude=`${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'South':'North'}`;
+    const longitude=`${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'West':'East'}`;
+    $('coordinates').textContent = `${latitude} · ${longitude}`;
+    $('coordinates').setAttribute('aria-label',`Globe center: latitude ${latitude}, longitude ${longitude}`);
     const zoomLevel=$('zoom-level');
     if (zoomLevel) {
       zoomLevel.textContent=`${view.zoom<10?Number(view.zoom.toFixed(1)):Math.round(view.zoom)}×`;
