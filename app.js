@@ -1,17 +1,24 @@
-import { createGlobe } from './globe.js?v=local-pins-2';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
+import { createGlobe } from './globe.js?v=progressive-dots-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=progressive-dots-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
+import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js?v=progressive-dots-1';
 import { cleanStreamUrl } from './stream-url.js?v=clean-streams-1';
+import { isExcludedStation } from './catalog-policy.js?v=progressive-dots-1';
 
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
 const storeKey = 'radio-dunya-v1';
 const validUrl = (value) => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
-const validStation = (s) => s && typeof s.id === 'string' && typeof s.name === 'string' && validUrl(s.url).startsWith('https:');
+const validStation = (s) => s && typeof s.id === 'string' && typeof s.name === 'string' && validUrl(s.url).startsWith('https:') && !isExcludedStation(s);
 const fold = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch { /* Browser storage can be disabled. */ }
+try {
+  if (['favorites','recent'].some(key=>Array.isArray(saved[key])&&saved[key].some(isExcludedStation))) {
+    for (const key of ['favorites','recent']) if (Array.isArray(saved[key])) saved[key]=saved[key].filter(s=>!isExcludedStation(s));
+    localStorage.setItem(storeKey,JSON.stringify(saved));
+  }
+} catch { /* The in-memory validation below also excludes these stations. */ }
 let favorites = new Map((Array.isArray(saved.favorites) ? saved.favorites : []).filter(validStation).map(s => [s.id, s]));
 let recent = (Array.isArray(saved.recent) ? saved.recent : []).filter(validStation).slice(0, 30);
 let stations = [], filtered = [], current = null, tab = 'explore', loading = true, loadError = false;
@@ -179,6 +186,7 @@ function moveNearby(direction) {
 }
 const globe = createGlobe($('globe'), {
   onBackgroundTap: () => setChromeHidden(!chromeHidden),
+  onCluster: () => setChromeHidden(false),
   onSelect: (station, {expanded = false, stations:members} = {}) => {
     setChromeHidden(false);
     const key=locationKey(station), group=members || pinGroups.get(key);
@@ -190,7 +198,7 @@ const globe = createGlobe($('globe'), {
   },
   onViewChange: (view) => {
     center = view;
-    $('map-instructions').textContent=view.zoom>5?'Tap a dot to listen. Rings open station lists.':'Drag to explore. Pick a station to listen.';
+    $('map-instructions').textContent=view.zoom>5?'Zoom into a cluster. Tap a dot to listen.':'Drag to explore. Pick a station to listen.';
     const latitude=`${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'South':'North'}`;
     const longitude=`${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'West':'East'}`;
     $('coordinates').textContent = `${latitude} · ${longitude}`;
@@ -292,7 +300,7 @@ function render({preserveNearby = true, lockNearby = false} = {}) {
   $('retry-directory').hidden=!(!loading&&((talk&&talkError)||(tab==='explore'&&(loadError||regionalError))));
   const surpriseButton=optional('surprise');
   if(surpriseButton) surpriseButton.disabled=!filtered.length;
-  globe.setStations(filtered); renderRows();
+  globe.setStations(filtered, stations); renderRows();
   // Filter and catalog changes retain a selected station as the local anchor.
   rebuildNearbyQueue({anchor:nearbyAnchor||current||center,preserve:preserveNearby,lock:lockNearby});
 }
@@ -300,7 +308,7 @@ function applyDirectory(data, reviewed) {
     talkCount=reviewed.length;
     // Reviewed records supply the chosen stream, including stations missing geo data.
     // Keep the global directory usable if this independent collection fails, and vice versa.
-    const merged=new Map(reviewed.map(s=>[s.id,s]));
+    const merged=new Map(reviewed.filter(validStation).map(s=>[s.id,s]));
     const urls=new Set(reviewed.map(s=>s.url));
     const stableStreams=new Map(regionalStations.filter(s=>s.streamOverride).map(s=>[s.id,s.url]));
     const reviewedNames=new Map(regionalStations.filter(s=>s.nameOverride).map(s=>[s.id,s.name]));
@@ -320,8 +328,16 @@ function applyDirectory(data, reviewed) {
     $('country').value=previousCountry;
     const currentRecords=new Map(stations.map(s=>[s.id,s]));
     const refreshed=s=>getTalkStation(s)||currentRecords.get(s.id)||s;
-    favorites=new Map([...favorites.values()].map(s=>{const updated=refreshed(s);return [updated.id,updated];}));
-    recent=[...new Map(recent.map(s=>{const updated=refreshed(s);return [updated.id,updated];})).values()];
+    favorites=new Map([...favorites.values()].map(refreshed).filter(validStation).map(s=>[s.id,s]));
+    recent=[...new Map(recent.map(refreshed).filter(validStation).map(s=>[s.id,s])).values()];
+    if (current && (!validStation(current) || !validStation(refreshed(current)))) {
+      disconnect();current=null;globe.selectStation(null);setPhase('idle');
+      $('playing-name').textContent='Where will you listen?';$('playing-name').title='';
+      $('playing-location').textContent='Choose a station on the globe.';$('playing-location').title='';
+      $('play-toggle').disabled=true;$('station-website').hidden=true;$('station-website').removeAttribute('href');
+      updateStationTime();updateFavoriteButtons();
+      if ('mediaSession' in navigator) navigator.mediaSession.metadata=null;
+    }
     if (current) {
       const updated=refreshed(current);
       // Do not relabel audio already playing from a different saved stream.

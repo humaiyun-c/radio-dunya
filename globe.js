@@ -3,11 +3,12 @@
 // This module redraws after input/data changes and during gesture/navigation springs.
 
 import { getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { canSpreadPins, spreadPins } from './pin-layout.js?v=local-pins-2';
+import { canSpreadPins, spreadPins, stationPositions } from './pin-layout.js?v=progressive-dots-1';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
-const MAX_ZOOM = 54;
+const MAX_ZOOM = 4096;
+const stationKey = station => `${station.id}\u0000${station.url}`;
 // Apple recommends direct manipulation and gives 80% damping for momentum gestures:
 // https://developer.apple.com/videos/play/wwdc2018/803/
 // Response and travel below are tuned for this globe, not prescribed Apple values.
@@ -28,7 +29,7 @@ const locationKey = location => `${location.lat},${location.lon}`;
  * followed by {expanded, stations}: a dot selects one station directly, or a
  * compact marker supplies the original stations at nearby locations.
  */
-export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {}, onBackgroundTap = () => {} } = {}) {
+export function createGlobe(canvas, { onSelect = () => {}, onCluster = () => {}, onViewChange = () => {}, onHover = () => {}, onBackgroundTap = () => {} } = {}) {
   const { d3, topojson } = globalThis;
   if (!d3?.geoOrthographic || !topojson?.feature || !topojson?.mesh) throw new Error('The local globe libraries did not load.');
   const context = canvas.getContext('2d', { alpha: true });
@@ -58,6 +59,8 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let groups = [];
   let locationGroups = new Map();
   let stationStreams = new Map();
+  let layoutCatalog = null;
+  let displayLocations = new Map();
   let visiblePins = [];
   let selected = null;
   let hovered = null;
@@ -213,8 +216,11 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.arc(x, y, r, 0, Math.PI * 2);
   }
 
-  function projectedStation(station, margin = 12) {
-    const location = getMapLocation(station);
+  function displayLocation(station) {
+    return zoom > 5 ? displayLocations.get(stationKey(station)) || getMapLocation(station) : getMapLocation(station);
+  }
+
+  function projectedStation(station, margin = 12, location = displayLocation(station)) {
     if (!location) return null;
     const lat = location.lat * RADIANS;
     const centerLat = view.lat * RADIANS;
@@ -288,12 +294,19 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     const pinRadius = Math.min(3.3, 1.75 + Math.log2(zoom + 1) * 0.35);
     const projected = [];
     for (const group of groups) {
-      const point = projectedStation(group.station, pinRadius + 5);
-      if (!point) continue;
-      projected.push({...point, stations:group.stations, spread:group.spread, countryCode:group.countryCode});
+      if (zoom > 5 && group.spread) {
+        for (const station of group.stations) {
+          const point = projectedStation(station, pinRadius + 8);
+          if (point) projected.push({...point, stations:[station], spread:true, countryCode:group.countryCode});
+        }
+      } else {
+        const point = projectedStation(group.station, pinRadius + 8, getMapLocation(group.station));
+        if (point) projected.push({...point, stations:group.stations, spread:group.spread, countryCode:group.countryCode});
+      }
     }
-    visiblePins = (zoom > 5 ? spreadPins(projected, {width, height}) : projected.map(point => ({...point, expanded:false})))
-      .map(point => ({...point, radius:point.clustered ? 7 : pinRadius}));
+    visiblePins = (zoom > 5 ? spreadPins(projected) : projected.map(point => ({...point, expanded:false,
+      clustered:false,canZoom:point.spread&&point.stations.length>1})))
+      .map(point => ({...point, radius:point.clustered ? 8 : pinRadius}));
     context.beginPath();
     for (const pin of visiblePins) if (!pin.clustered) circle(pin.x, pin.y, pinRadius);
     context.fillStyle = palette.pin;
@@ -301,16 +314,14 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.fill();
     context.globalAlpha = 1;
 
-    // A quiet, number-free ring signals more stations at this location.
+    // A small bunch of dots invites another zoom; individual stations resolve
+    // progressively without rings, numbers, or lines crossing the map.
     context.beginPath();
-    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 6);
-    context.fillStyle = palette.ocean;
-    context.fill();
-    context.strokeStyle = palette.pin;
-    context.lineWidth = 1.2;
-    context.stroke();
-    context.beginPath();
-    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 2.1);
+    for (const pin of visiblePins) if (pin.clustered) {
+      circle(pin.x - 3.2, pin.y + 1.8, 2.4);
+      circle(pin.x + 3.2, pin.y + 1.8, 2.4);
+      if (pin.stations.length > 2) circle(pin.x, pin.y - 3.4, 2.4);
+    }
     context.fillStyle = palette.pin;
     context.fill();
 
@@ -322,6 +333,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       const point = visiblePins.find(pin => pin.stations.some(member => member.id === station.id && member.url === station.url));
       if (!point) continue;
       const isSelected = station === selected;
+      if (point.canZoom && !isSelected) continue;
       context.beginPath();
       circle(point.x, point.y, isSelected ? 10 : 7);
       context.lineWidth = isSelected ? 1.7 : 1;
@@ -465,8 +477,27 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (!tap) return;
     // Open a shared-location drawer on the completed click, so the compatibility
     // click following touch release cannot accidentally activate its new rows.
-    if (tap.pin) onSelect(tap.pin.station, {expanded:tap.pin.expanded, stations:tap.pin.stations});
+    if (tap.pin) selectPin(tap.pin);
     else onBackgroundTap();
+  }
+
+  function selectPin(pin) {
+    if (!pin.canZoom || zoom >= MAX_ZOOM) {
+      onSelect(pin.station, {expanded:pin.expanded, stations:pin.stations});
+      return;
+    }
+    const points = pin.stations.map(station => {
+      const location = displayLocations.get(stationKey(station)) || getMapLocation(station);
+      return projection([location.lon,location.lat]);
+    });
+    const xs=points.map(p=>p[0]), ys=points.map(p=>p[1]);
+    const left=Math.min(...xs), right=Math.max(...xs), top=Math.min(...ys), bottom=Math.max(...ys);
+    const destination=projection.invert([(left+right)/2,(top+bottom)/2]);
+    const span=Math.max(right-left,bottom-top,0.001);
+    const desired=Math.min(Math.min(width,height)*0.65,24*Math.sqrt(pin.stations.length));
+    const targetZoom=clamp(Math.max(6,zoom*clamp(desired/span,2,64)),zoom,MAX_ZOOM);
+    onCluster();
+    animateView({lat:destination[1],lon:destination[0]},targetZoom);
   }
 
   function zoomBy(factor) {
@@ -490,7 +521,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     else if (event.key === 'Home') animateView(INITIAL_VIEW, 1);
     else if (event.key === 'Enter' || event.key === ' ') {
       const pin = hitTest({ x: width / 2, y: height / 2 }, Infinity);
-      if (pin) onSelect(pin.station, {expanded:pin.expanded, stations:pin.stations});
+      if (pin) selectPin(pin);
     } else return;
     canvas.classList.add('keyboard-focus');
     event.preventDefault();
@@ -547,7 +578,15 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   invalidate(true);
   return {
-    setStations(nextStations) {
+    setStations(nextStations, catalog = nextStations) {
+      if (layoutCatalog !== catalog) {
+        layoutCatalog = catalog;
+        displayLocations = stationPositions(Array.isArray(catalog) ? catalog : [], getMapLocation);
+      }
+      // Old favorites can outlive the current directory. Include their layout
+      // without disturbing already known catalog positions.
+      const extras = (Array.isArray(nextStations) ? nextStations : []).filter(station => !displayLocations.has(stationKey(station)));
+      if (extras.length) for (const [key,location] of stationPositions(extras,getMapLocation)) displayLocations.set(key,location);
       locationGroups = new Map();
       stationStreams = new Map();
       for (const station of Array.isArray(nextStations) ? nextStations : []) {
@@ -574,7 +613,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
       invalidate();
     },
     focusStation(station) {
-      const location = getMapLocation(station);
+      const location = displayLocation(station);
       if (!location) return;
       animateView(location);
     },
