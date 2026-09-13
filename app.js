@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=spread-pins-1';
+import { createGlobe } from './globe.js?v=local-pins-2';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
@@ -179,16 +179,18 @@ function moveNearby(direction) {
 }
 const globe = createGlobe($('globe'), {
   onBackgroundTap: () => setChromeHidden(!chromeHidden),
-  onSelect: (station, {expanded = false} = {}) => {
+  onSelect: (station, {expanded = false, stations:members} = {}) => {
     setChromeHidden(false);
-    const key=locationKey(station), group=pinGroups.get(key);
+    const key=locationKey(station), group=members || pinGroups.get(key);
     if (group?.length>1 && !expanded) {
-      placeScope={key,label:locationLabel(station)};
+      const nearby=group.some(member=>locationKey(member)!==key);
+      placeScope={ids:new Set(group.map(member=>member.id)),label:nearby?'this area':locationLabel(station)};
       visibleCount=60;render();openStations();$('collection').scrollTop=0;
     } else playStation(station);
   },
   onViewChange: (view) => {
     center = view;
+    $('map-instructions').textContent=view.zoom>5?'Tap a dot to listen. Rings open station lists.':'Drag to explore. Pick a station to listen.';
     const latitude=`${Math.abs(view.lat).toFixed(0)}° ${view.lat<0?'South':'North'}`;
     const longitude=`${Math.abs(view.lon).toFixed(0)}° ${view.lon<0?'West':'East'}`;
     $('coordinates').textContent = `${latitude} · ${longitude}`;
@@ -199,11 +201,12 @@ const globe = createGlobe($('globe'), {
       zoomLevel.setAttribute('aria-label',`Zoom ${view.zoom.toFixed(1)} times, maximum ${view.maxZoom} times`);
     }
   },
-  onHover: (station, {expanded = false} = {}) => {
+  onHover: (station, {expanded = false, stations:members} = {}) => {
     $('globe-tooltip').hidden = !station;
     if (station) {
-      const count=expanded ? 1 : pinGroups.get(locationKey(station))?.length||1;
-      $('globe-tooltip').textContent = [count>1?`${count} stations`:station.name,locationLabel(station),mapLocationNote(station)].filter(Boolean).join(' — ');
+      const count=expanded ? 1 : (members || pinGroups.get(locationKey(station)))?.length||1;
+      const nearby=members?.some(member=>locationKey(member)!==locationKey(station));
+      $('globe-tooltip').textContent = [count>1?`${count} ${nearby?'nearby ':''}stations`:station.name,nearby?'':locationLabel(station),mapLocationNote(station)].filter(Boolean).join(' — ');
     }
   }
 });
@@ -268,7 +271,7 @@ function render({preserveNearby = true, lockNearby = false} = {}) {
   const talk = genre==='talk';
   transportEligible=source.filter(s => (!country||countryCodeFor(s)===country) && (!genre||(talk ? isTalkStation(s) : fold(s.tags).includes(genre))));
   filtered=transportEligible.filter(s=>terms.every(term=>textFor(s).includes(term)));
-  if(placeScope) filtered=filtered.filter(s=>locationKey(s)===placeScope.key);
+  if(placeScope) filtered=filtered.filter(s=>placeScope.ids.has(s.id));
   pinGroups=new Map();
   for(const s of filtered){const key=locationKey(s);if(!key)continue;if(!pinGroups.has(key))pinGroups.set(key,[]);pinGroups.get(key).push(s);}
   $('map-summary').textContent=filtered.length?`${filtered.length.toLocaleString()} stations at ${pinGroups.size.toLocaleString()} map ${pinGroups.size===1?'location':'locations'}.`:'';

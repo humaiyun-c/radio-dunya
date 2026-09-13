@@ -4,8 +4,10 @@
 // follow their own country code; Kosovo is included in Europe.
 const excluded = new Set(('AX AL AD AT BY BE BA BG HR CZ DK EE FO FI FR DE GI GR GG VA HU IS IE IM IT JE LV LI LT LU MT MD MC ME NL MK NO PL PT RO SM RS SK SI ES SJ SE CH UA GB XK '
   + 'CA US MX BM GL PM BZ CR SV GT HN NI PA AI AG AW BS BB BQ VG KY CU CW DM DO GD GP HT JM MQ MS PR BL KN LC MF VC SX TT TC VI').split(' '));
-const SPACING = 18;
-const OVERLAP = 12;
+const FAN_RADIUS = 18;
+const MAX_FAN_MEMBERS = 6;
+const GRID_SIZE = 48;
+const CLUSTER_RADIUS = 14;
 const identity = station => `${station.id}\u0000${station.url}`;
 
 export function canSpreadPins(countryCode) {
@@ -13,99 +15,74 @@ export function canSpreadPins(countryCode) {
   return /^[A-Z]{2}$/.test(code) && !excluded.has(code);
 }
 
-function gridKey(x, y, size) {
-  return `${Math.floor(x / size)},${Math.floor(y / size)}`;
-}
-
-function *hexagonSlots(x, y) {
-  yield { x, y };
-  const directions = [[-1, 1], [-1, 0], [0, -1], [1, -1], [1, 0], [0, 1]];
-  for (let ring = 1; ; ring++) {
-    let q = ring, r = 0;
-    for (const [dq, dr] of directions) {
-      for (let step = 0; step < ring; step++) {
-        yield { x: x + SPACING * (q + r / 2), y: y + SPACING * Math.sqrt(3) / 2 * r };
-        q += dq; r += dr;
+/**
+ * Only fan small, isolated shared locations. Every offset is at most 18 CSS px;
+ * crowded locations remain at their own anchors, regardless of station count.
+ * Nearby anchors may share a marker within 14 px of an existing anchor; groups
+ * never chain together or grow beyond that radius. Coordinates stay untouched.
+ */
+export function spreadPins(projected, {width = Infinity, height = Infinity} = {}) {
+  const cells = new Map(), claimed = new Set(), groups = [];
+  const ordered = [...projected].sort((a,b) => b.stations.length - a.stations.length
+    || identity(a.stations[0]).localeCompare(identity(b.stations[0])));
+  for (const group of ordered) {
+    if (!group.spread) continue;
+    const key = `${group.countryCode}:${Math.floor(group.x / CLUSTER_RADIUS)},${Math.floor(group.y / CLUSTER_RADIUS)}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(group);
+  }
+  for (const anchor of ordered) {
+    if (claimed.has(anchor)) continue;
+    claimed.add(anchor);
+    const group = {...anchor, stations:[...anchor.stations], places:1};
+    if (anchor.spread) {
+      const gx = Math.floor(anchor.x / CLUSTER_RADIUS), gy = Math.floor(anchor.y / CLUSTER_RADIUS);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const other of cells.get(`${anchor.countryCode}:${gx + dx},${gy + dy}`) || []) {
+          if (claimed.has(other) || Math.hypot(anchor.x - other.x, anchor.y - other.y) >= CLUSTER_RADIUS) continue;
+          claimed.add(other);
+          group.stations.push(...other.stations);
+          group.places++;
+        }
       }
     }
+    groups.push(group);
   }
-}
-
-/**
- * Spread projected, eligible groups in CSS pixels. Real station coordinates and
- * identities are untouched. A screen grid keeps work local, without a simulation.
- * Each input group has {x, y, stations, spread}; excluded groups stay fixed.
- */
-export function spreadPins(groups) {
-  const pins = [], occupied = new Map(), nearby = new Map();
-  const eligible = groups.filter(group => group.spread)
-    .sort((a, b) => identity(a.stations[0]).localeCompare(identity(b.stations[0])));
-  const parent = eligible.map((_, i) => i);
-  const root = i => {
-    while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
-    return i;
-  };
-  const add = pin => {
-    pins.push(pin);
-    const key = gridKey(pin.x, pin.y, SPACING);
-    if (!occupied.has(key)) occupied.set(key, []);
-    occupied.get(key).push(pin);
-  };
-  const vacant = ({x, y}) => {
-    const gx = Math.floor(x / SPACING), gy = Math.floor(y / SPACING);
+  const neighbors = new Map();
+  const candidates = new Set(groups.filter(group => group.spread && group.places === 1
+    && group.stations.length >= 2 && group.stations.length <= MAX_FAN_MEMBERS));
+  for (const group of groups) {
+    const key = `${Math.floor(group.x / GRID_SIZE)},${Math.floor(group.y / GRID_SIZE)}`;
+    if (!neighbors.has(key)) neighbors.set(key, []);
+    neighbors.get(key).push(group);
+  }
+  const canFan = group => {
+    const edge = FAN_RADIUS + 10;
+    if (!candidates.has(group) || group.x < edge || group.y < edge
+      || group.x > width - edge || group.y > height - edge) return false;
+    const gx = Math.floor(group.x / GRID_SIZE), gy = Math.floor(group.y / GRID_SIZE);
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      for (const pin of occupied.get(`${gx + dx},${gy + dy}`) || []) {
-        if ((pin.x - x) ** 2 + (pin.y - y) ** 2 < SPACING ** 2 - 0.01) return false;
+      for (const other of neighbors.get(`${gx + dx},${gy + dy}`) || []) {
+        if (other === group) continue;
+        const extent = candidates.has(other) ? FAN_RADIUS : other.stations.length > 1 ? 7 : 3.3;
+        if (Math.hypot(group.x - other.x, group.y - other.y) < FAN_RADIUS + extent + 10) return false;
       }
     }
     return true;
   };
-  const pinAt = (group, station, point = group) => ({
-    station, x: point.x, y: point.y, anchorX: group.x, anchorY: group.y, expanded: group.spread,
-  });
-
+  const pins = [];
   for (const group of groups) {
-    if (!group.spread) add(pinAt(group, group.stations[0]));
-  }
-  // Join overlapping anchors, not every co-located station: a city with hundreds
-  // of streams remains one entry in this lookup.
-  eligible.forEach((group, i) => {
-    const gx = Math.floor(group.x / OVERLAP), gy = Math.floor(group.y / OVERLAP);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      for (const j of nearby.get(`${gx + dx},${gy + dy}`) || []) {
-        const other = eligible[j];
-        if ((group.x - other.x) ** 2 + (group.y - other.y) ** 2 < OVERLAP ** 2) parent[root(i)] = root(j);
-      }
+    if (!canFan(group)) {
+      pins.push({station:group.stations[0], stations:group.stations, x:group.x, y:group.y,
+        anchorX:group.x, anchorY:group.y, expanded:false,
+        clustered:group.spread && group.stations.length > 1});
+      continue;
     }
-    const key = gridKey(group.x, group.y, OVERLAP);
-    if (!nearby.has(key)) nearby.set(key, []);
-    nearby.get(key).push(i);
-  });
-  const clusters = new Map();
-  eligible.forEach((group, i) => {
-    const key = root(i);
-    if (!clusters.has(key)) clusters.set(key, []);
-    for (const station of group.stations) clusters.get(key).push({group, station});
-  });
-  const crowded = [];
-  for (const cluster of clusters.values()) {
-    if (cluster.length === 1 && vacant(cluster[0].group)) add(pinAt(cluster[0].group, cluster[0].station));
-    else {
-      cluster.sort((a, b) => identity(a.station).localeCompare(identity(b.station)));
-      crowded.push(cluster);
-    }
-  }
-  crowded.sort((a, b) => identity(a[0].station).localeCompare(identity(b[0].station)));
-  for (const cluster of crowded) {
-    const x = cluster.reduce((sum, member) => sum + member.group.x, 0) / cluster.length;
-    const y = cluster.reduce((sum, member) => sum + member.group.y, 0) / cluster.length;
-    const slots = hexagonSlots(x, y);
-    cluster.forEach(({group, station}, i) => {
-      const angle = 2 * Math.PI * i / cluster.length - Math.PI / 2;
-      const radius = Math.max(12, SPACING / (2 * Math.sin(Math.PI / cluster.length)));
-      let point = cluster.length >= 2 && cluster.length <= 8 ? {x: x + radius * Math.cos(angle), y: y + radius * Math.sin(angle)} : slots.next().value;
-      while (!vacant(point)) point = slots.next().value;
-      add(pinAt(group, station, point));
+    const stations = [...group.stations].sort((a,b) => identity(a).localeCompare(identity(b)));
+    stations.forEach((station,i) => {
+      const angle = 2 * Math.PI * i / stations.length - Math.PI / 2;
+      pins.push({station, stations:[station], x:group.x + FAN_RADIUS * Math.cos(angle), y:group.y + FAN_RADIUS * Math.sin(angle),
+        anchorX:group.x, anchorY:group.y, expanded:true, clustered:false});
     });
   }
   return pins;

@@ -46,7 +46,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 #globe:focus,#globe:focus-visible{outline:none}
 #globe.keyboard-focus:focus{outline:1px solid var(--globe-line);outline-offset:-3px}
 .world-heading{position:absolute;top:calc(90px + env(safe-area-inset-top,0px));left:20px;right:20px;text-align:center;z-index:1;pointer-events:none}
-.world-heading p{margin:0;font-size:12px;color:var(--muted);letter-spacing:.05px}
+.world-heading p{display:inline-block;margin:0;padding:7px 11px;border-radius:18px;background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:12px;color:var(--muted);letter-spacing:.05px}
 .zoom-controls{position:absolute;right:18px;top:46%;transform:translateY(-50%);display:flex;flex-direction:column;background:var(--glass);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);overflow:hidden}
 .zoom-controls button{display:grid;place-items:center;width:43px;height:43px;color:var(--ink);font-size:25px;font-weight:300}
 .zoom-controls button:hover{background:var(--soft)}

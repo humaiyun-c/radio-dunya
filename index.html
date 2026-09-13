@@ -7,11 +7,11 @@
   <meta name="description" content="Explore the world through live radio. A quiet, personal radio player.">
   <title>Radio Dunya</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=cardinal-coordinates-1">
+  <link rel="stylesheet" href="styles.css?v=local-pins-2">
   <script defer src="vendor/d3-array.min.js"></script>
   <script defer src="vendor/d3-geo.min.js"></script>
   <script defer src="vendor/topojson-client.min.js"></script>
-  <script type="module" src="app.js?v=spread-pins-1"></script>
+  <script type="module" src="app.js?v=local-pins-2"></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -68,7 +68,7 @@
     </dialog>
 
     <section class="world" aria-label="Explore the globe">
-      <div class="world-heading" data-chrome><p>Drag to explore. Pick a station to listen.</p></div>
+      <div class="world-heading" data-chrome><p id="map-instructions">Drag to explore. Pick a station to listen.</p></div>
       <div class="globe-wrap"><canvas id="globe" tabindex="0" aria-label="Interactive radio globe. Drag or use arrow keys to rotate, plus and minus to zoom, and Enter to select a station. Tap empty map space to hide or show controls; Escape shows controls. Stations are also available in the station list."></canvas></div>
       <div id="globe-tooltip" class="globe-tooltip" data-chrome hidden></div>
       <div class="zoom-controls" data-chrome aria-label="Globe controls"><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button id="reset-globe" aria-label="Reset globe" title="Reset globe"><svg class="icon"><use href="#i-world"/></svg></button><output id="zoom-level" aria-label="Globe zoom" title="Maximum zoom 54×">1×</output></div>

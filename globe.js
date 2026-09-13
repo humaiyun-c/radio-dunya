@@ -3,7 +3,7 @@
 // This module redraws after input/data changes and during gesture/navigation springs.
 
 import { getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
-import { canSpreadPins, spreadPins } from './pin-layout.js?v=spread-pins-1';
+import { canSpreadPins, spreadPins } from './pin-layout.js?v=local-pins-2';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
@@ -25,7 +25,8 @@ const locationKey = location => `${location.lat},${location.lon}`;
  * Pins use resolved locations, including approximate city/capital locations.
  * Stations without a resolved location are skipped; raw coordinates are preserved.
  * onSelect and onHover receive the original station object, never a clone,
- * followed by {expanded}: true when a spread dot selects one station directly.
+ * followed by {expanded, stations}: a dot selects one station directly, or a
+ * compact marker supplies the original stations at nearby locations.
  */
 export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => {}, onHover = () => {}, onBackgroundTap = () => {} } = {}) {
   const { d3, topojson } = globalThis;
@@ -58,10 +59,10 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let locationGroups = new Map();
   let stationStreams = new Map();
   let visiblePins = [];
-  let spreadMargin = 24;
   let selected = null;
   let hovered = null;
   let hoverExpanded = false;
+  let hoverMembers = null;
   let gesture = null;
   let release = null;
   let pendingTap = null;
@@ -287,40 +288,38 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     const pinRadius = Math.min(3.3, 1.75 + Math.log2(zoom + 1) * 0.35);
     const projected = [];
     for (const group of groups) {
-      const point = projectedStation(group.station, zoom > 5 && group.spread.length ? spreadMargin : pinRadius + 5);
+      const point = projectedStation(group.station, pinRadius + 5);
       if (!point) continue;
-      if (zoom > 5) {
-        if (group.spread.length) projected.push({...point, stations:group.spread, spread:true});
-        if (group.fixed.length) projected.push({...point, stations:group.fixed, spread:false});
-      } else projected.push({...point, stations:[group.station], spread:false});
+      projected.push({...point, stations:group.stations, spread:group.spread, countryCode:group.countryCode});
     }
-    visiblePins = (zoom > 5 ? spreadPins(projected) : projected.map(point => ({...point, expanded:false})))
-      .map(point => ({...point, radius:pinRadius}));
-    // Fine spokes identify display offsets without moving the geographic anchor.
+    visiblePins = (zoom > 5 ? spreadPins(projected, {width, height}) : projected.map(point => ({...point, expanded:false})))
+      .map(point => ({...point, radius:point.clustered ? 7 : pinRadius}));
     context.beginPath();
-    for (const pin of visiblePins) {
-      if (!pin.expanded || Math.hypot(pin.x - pin.anchorX, pin.y - pin.anchorY) < pinRadius + 1) continue;
-      context.moveTo(pin.anchorX, pin.anchorY);
-      context.lineTo(pin.x, pin.y);
-    }
-    context.strokeStyle = palette.pin;
-    context.lineWidth = 0.65;
-    context.globalAlpha = 0.18;
-    context.stroke();
-    context.beginPath();
-    for (const pin of visiblePins) circle(pin.x, pin.y, pinRadius);
+    for (const pin of visiblePins) if (!pin.clustered) circle(pin.x, pin.y, pinRadius);
     context.fillStyle = palette.pin;
     context.globalAlpha = 0.88;
     context.fill();
     context.globalAlpha = 1;
+
+    // A quiet, number-free ring signals more stations at this location.
+    context.beginPath();
+    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 6);
+    context.fillStyle = palette.ocean;
+    context.fill();
+    context.strokeStyle = palette.pin;
+    context.lineWidth = 1.2;
+    context.stroke();
+    context.beginPath();
+    for (const pin of visiblePins) if (pin.clustered) circle(pin.x, pin.y, 2.1);
+    context.fillStyle = palette.pin;
+    context.fill();
 
     for (const station of [hovered, selected]) {
       if (!station||stationStreams.get(station.id)!==station.url) continue;
       const location = getMapLocation(station);
       const group = location && locationGroups.get(locationKey(location));
       if (!group) continue;
-      const point = visiblePins.find(pin => pin.station.id === station.id && pin.station.url === station.url)
-        || visiblePins.find(pin => !pin.expanded && locationKey(getMapLocation(pin.station)) === locationKey(location));
+      const point = visiblePins.find(pin => pin.stations.some(member => member.id === station.id && member.url === station.url));
       if (!point) continue;
       const isSelected = station === selected;
       context.beginPath();
@@ -371,10 +370,12 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
   function hover(pin) {
     const station = pin?.station || null, expanded = pin?.expanded || false;
-    if (hovered === station && hoverExpanded === expanded) return;
+    const members = pin?.stations || null;
+    if (hovered === station && hoverExpanded === expanded && hoverMembers?.length === members?.length) return;
     hovered = station;
     hoverExpanded = expanded;
-    onHover(station, {expanded});
+    hoverMembers = members;
+    onHover(station, {expanded, stations:members});
     invalidate();
   }
 
@@ -464,7 +465,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     if (!tap) return;
     // Open a shared-location drawer on the completed click, so the compatibility
     // click following touch release cannot accidentally activate its new rows.
-    if (tap.pin) onSelect(tap.pin.station, {expanded:tap.pin.expanded});
+    if (tap.pin) onSelect(tap.pin.station, {expanded:tap.pin.expanded, stations:tap.pin.stations});
     else onBackgroundTap();
   }
 
@@ -489,7 +490,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     else if (event.key === 'Home') animateView(INITIAL_VIEW, 1);
     else if (event.key === 'Enter' || event.key === ' ') {
       const pin = hitTest({ x: width / 2, y: height / 2 }, Infinity);
-      if (pin) onSelect(pin.station, {expanded:pin.expanded});
+      if (pin) onSelect(pin.station, {expanded:pin.expanded, stations:pin.stations});
     } else return;
     canvas.classList.add('keyboard-focus');
     event.preventDefault();
@@ -553,15 +554,15 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
         const location = getMapLocation(station);
         if (!location) continue;
         const key = locationKey(location);
-        if (!locationGroups.has(key)) locationGroups.set(key, {station, count:0, spread:[], fixed:[]});
+        const countryCode = String(location.countryCode || station.countryCode || '').toUpperCase();
+        if (!locationGroups.has(key)) locationGroups.set(key, {station, stations:[], spread:true, countryCode});
         const group = locationGroups.get(key);
-        group.count++;
-        group[canSpreadPins(location.countryCode || station.countryCode) ? 'spread' : 'fixed'].push(station);
+        group.stations.push(station);
+        group.spread &&= countryCode === group.countryCode && canSpreadPins(countryCode);
         stationStreams.set(station.id,station.url);
       }
       // Shared locations stay collapsed at low zoom and in excluded regions.
-      groups = [...locationGroups.values()].sort((a, b) => a.count - b.count);
-      spreadMargin = 24 + 18 * Math.sqrt(groups.reduce((max, group) => Math.max(max, group.spread.length), 0));
+      groups = [...locationGroups.values()].sort((a, b) => a.stations.length - b.stations.length);
       // Discard old hit targets immediately when a filter changes, before redraw.
       visiblePins = [];
       pendingTap = null;
