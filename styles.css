@@ -7,6 +7,11 @@
 @media(max-width:375px){.world{height:350px}.world-heading h2{font-size:20px}.globe-wrap{inset:68px 29px 57px}.world-heading{left:18px}.world-bottom{left:18px}.transport>.icon-button{display:none}.player{gap:8px;padding-left:13px;padding-right:13px}.library-top{padding-left:18px;padding-right:18px}.tabs{gap:22px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
+.map-summary{font-size:12px;line-height:1.5;color:var(--muted);padding:0 10px;margin:0 0 16px}
+.map-legend{position:absolute;bottom:76px;left:28px;margin:0;display:flex;align-items:center;gap:7px;font-size:11px;color:var(--world-muted);pointer-events:none}
+.map-legend span{display:grid;place-items:center;width:21px;height:21px;border-radius:50%;background:var(--globe-pin);color:var(--globe-ocean);font-size:10px;font-weight:600}
+@media(max-width:700px){.map-legend{left:18px;bottom:76px;font-size:10px;gap:6px}}
+
 /* Globe view: the map owns the viewport; the station browser opens on demand. */
 :root{--globe-border:#9ab3c1;--drawer-backdrop:#071c2a70}
 html,body{height:100%;overflow-y:hidden}

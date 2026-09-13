@@ -209,6 +209,7 @@ function normalizeRegional(data) {
       state: clean(row.state, 160), language: clean(row.language, 300), tags: clean(row.tags, 600),
       homepage: safeUrl(row.homepage), bitrate: Math.max(0, Math.min(10000, Number(row.bitrate) || 0)),
       streamOverride: row.streamOverride === true,
+      nameOverride: row.nameOverride === true,
     });
     seenIds.add(id);
     seenUrls.add(url);

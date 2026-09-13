@@ -1,6 +1,6 @@
-import { createGlobe } from './globe.js?v=coverage-1';
-import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=coverage-1';
-import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=coverage-1';
+import { createGlobe } from './globe.js?v=place-names-1';
+import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=place-names-1';
+import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=place-names-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
 
 const $ = (id) => document.getElementById(id);
@@ -184,6 +184,8 @@ function render() {
   if(placeScope) filtered=filtered.filter(s=>locationKey(s)===placeScope.key);
   pinGroups=new Map();
   for(const s of filtered){const key=locationKey(s);if(!key)continue;if(!pinGroups.has(key))pinGroups.set(key,[]);pinGroups.get(key).push(s);}
+  $('map-summary').textContent=filtered.length?`${filtered.length.toLocaleString()} stations at ${pinGroups.size.toLocaleString()} map ${pinGroups.size===1?'location':'locations'}. Numbers on the map show stations sharing a location.`:'';
+  $('map-summary').hidden=!filtered.length;
   if (near&&tab==='explore') filtered.sort((a,b)=>distance(a,near)-distance(b,near));
   $('list-title').textContent = placeScope ? `Stations in ${placeScope.label}` : tab==='favorites' ? 'Your favorite stations' : tab==='recent' ? 'Recently heard' : near ? 'Around this view' : talk ? 'Voices around the world' : 'Across the dial';
   $('talk-note').hidden=!talk||!talkCount;
@@ -208,9 +210,11 @@ function applyDirectory(data, reviewed) {
     const merged=new Map(reviewed.map(s=>[s.id,s]));
     const urls=new Set(reviewed.map(s=>s.url));
     const stableStreams=new Map(regionalStations.filter(s=>s.streamOverride).map(s=>[s.id,s.url]));
+    const reviewedNames=new Map(regionalStations.filter(s=>s.nameOverride).map(s=>[s.id,s.name]));
     for (const record of [...(data?.stations||[]),...regionalStations]) {
       const stableUrl=stableStreams.get(record.id);
-      const s=stableUrl&&record.url!==stableUrl?{...record,url:stableUrl}:record;
+      const reviewedName=reviewedNames.get(record.id);
+      const s=stableUrl&&record.url!==stableUrl||reviewedName&&record.name!==reviewedName?{...record,url:stableUrl||record.url,name:reviewedName||record.name}:record;
       if (!validStation(s)||merged.has(s.id)||getTalkStation(s)) continue;
       const url=new URL(s.url); url.hash='';
       if (urls.has(url.href)) continue;

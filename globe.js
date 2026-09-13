@@ -2,13 +2,15 @@
 // https://d3js.org/d3-geo/projection and https://d3js.org/d3-geo/path
 // This module redraws only after input, resize, or a data change.
 
-import { getMapLocation, isMappable } from './station-location.js?v=coverage-1';
+import { getMapLocation, isMappable } from './station-location.js?v=place-names-1';
 
 const RADIANS = Math.PI / 180;
 const INITIAL_VIEW = { lat: 20, lon: 15 };
 const MAX_ZOOM = 54;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const wrapLongitude = value => ((value + 180) % 360 + 360) % 360 - 180;
+const locationKey = location => `${location.lat},${location.lon}`;
+const badgeRadius = count => Math.min(17, 8 + String(count).length * 2.25);
 
 /**
  * Create an event-driven globe. Load the three vendor scripts before this module.
@@ -42,7 +44,8 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   let viewChanged = true;
   let land = null;
   let borders = null;
-  let stations = [];
+  let groups = [];
+  let locationGroups = new Map();
   let stationStreams = new Map();
   let visiblePins = [];
   let selected = null;
@@ -74,7 +77,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     context.arc(x, y, r, 0, Math.PI * 2);
   }
 
-  function projectedStation(station) {
+  function projectedStation(station, margin = 12) {
     const location = getMapLocation(station);
     if (!location) return null;
     const lat = location.lat * RADIANS;
@@ -84,7 +87,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     // projection(point) alone does not apply hemisphere clipping.
     if (facing <= 0.012) return null;
     const point = projection([location.lon, location.lat]);
-    if (!point || point[0] < -12 || point[0] > width + 12 || point[1] < -12 || point[1] > height + 12) return null;
+    if (!point || point[0] < -margin || point[0] > width + margin || point[1] < -margin || point[1] > height + margin) return null;
     return { station, x: point[0], y: point[1] };
   }
 
@@ -147,32 +150,49 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
 
     visiblePins = [];
     const pinRadius = Math.min(3.3, 1.75 + Math.log2(zoom + 1) * 0.35);
+    // Keep the world readable; smaller shared groups reveal their counts as you zoom in.
+    const countThreshold = zoom < 2 ? 50 : zoom < 5 ? 10 : 2;
     context.beginPath();
-    for (const station of stations) {
-      const point = projectedStation(station);
+    for (const group of groups) {
+      const badge = group.count >= countThreshold;
+      const markerRadius = badge ? badgeRadius(group.count) : pinRadius;
+      const point = projectedStation(group.station, markerRadius + 5);
       if (!point) continue;
-      visiblePins.push(point);
-      circle(point.x, point.y, pinRadius);
+      visiblePins.push({...point, radius:markerRadius, count:group.count, badge});
+      if (!badge) circle(point.x, point.y, markerRadius);
     }
     context.fillStyle = palette.pin;
     context.globalAlpha = 0.88;
     context.fill();
     context.globalAlpha = 1;
 
+    context.font = '600 11px "Segoe UI", Tahoma, Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    for (const pin of visiblePins) {
+      if (!pin.badge) continue;
+      context.beginPath();
+      circle(pin.x, pin.y, pin.radius);
+      context.fillStyle = palette.pin;
+      context.fill();
+      context.fillStyle = palette.ocean;
+      context.fillText(String(pin.count), pin.x, pin.y + 0.5);
+    }
+
     for (const station of [hovered, selected]) {
       if (!station||stationStreams.get(station.id)!==station.url) continue;
-      const point = projectedStation(station);
+      const location = getMapLocation(station);
+      const group = location && locationGroups.get(locationKey(location));
+      if (!group) continue;
+      const markerRadius = group.count >= countThreshold ? badgeRadius(group.count) : pinRadius;
+      const point = projectedStation(station, markerRadius + 5);
       if (!point) continue;
       const isSelected = station === selected;
       context.beginPath();
-      circle(point.x, point.y, isSelected ? 10 : 7);
+      circle(point.x, point.y, Math.max(isSelected ? 10 : 7, markerRadius + (isSelected ? 4 : 3)));
       context.lineWidth = isSelected ? 1.7 : 1;
       context.strokeStyle = isSelected ? palette.selected : palette.pin;
       context.stroke();
-      context.beginPath();
-      circle(point.x, point.y, isSelected ? 4 : 3);
-      context.fillStyle = isSelected ? palette.selected : palette.pin;
-      context.fill();
     }
 
     if (viewChanged) {
@@ -191,10 +211,21 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   }
 
   function hitTest(point, tolerance = 7) {
+    // Actual marker areas follow paint order: the last drawn badge is on top.
+    if (Number.isFinite(tolerance)) {
+      for (let i = visiblePins.length - 1; i >= 0; i--) {
+        const pin = visiblePins[i];
+        if (!isMappable(pin.station)) continue;
+        const distance = (point.x - pin.x) ** 2 + (point.y - pin.y) ** 2;
+        if (distance <= pin.radius ** 2) return pin.station;
+      }
+    }
     let closest = null;
     let distanceSquared = tolerance * tolerance;
     for (const pin of visiblePins) {
       if (!isMappable(pin.station)) continue;
+      // Only small dots get extra pointer tolerance. Keyboard selection is nearest.
+      if (Number.isFinite(tolerance) && pin.badge) continue;
       const distance = (point.x - pin.x) ** 2 + (point.y - pin.y) ** 2;
       if (distance < distanceSquared) {
         distanceSquared = distance;
@@ -231,7 +262,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
     canvas.classList.remove('keyboard-focus');
     if (event.button !== 0) return;
     const point = localPoint(event);
-    if (!insideSphere(point)) return;
+    if (!insideSphere(point) && !hitTest(point, 0)) return;
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, point);
     startGesture(pointers.size > 1);
@@ -242,7 +273,7 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   function pointerMove(event) {
     const point = localPoint(event);
     if (!pointers.has(event.pointerId)) {
-      const target = insideSphere(point) ? hitTest(point) : null;
+      const target = hitTest(point, insideSphere(point) ? 7 : 0);
       hover(target);
       canvas.style.cursor = target ? 'pointer' : 'grab';
       return;
@@ -349,8 +380,19 @@ export function createGlobe(canvas, { onSelect = () => {}, onViewChange = () => 
   invalidate(true);
   return {
     setStations(nextStations) {
-      stations = Array.isArray(nextStations) ? nextStations.filter(isMappable) : [];
-      stationStreams = new Map(stations.map(station => [station.id,station.url]));
+      locationGroups = new Map();
+      stationStreams = new Map();
+      for (const station of Array.isArray(nextStations) ? nextStations : []) {
+        const location = getMapLocation(station);
+        if (!location) continue;
+        const key = locationKey(location);
+        const group = locationGroups.get(key);
+        if (group) group.count++;
+        else locationGroups.set(key, {station, count:1});
+        stationStreams.set(station.id,station.url);
+      }
+      // Exact locations only; larger groups paint after smaller ones.
+      groups = [...locationGroups.values()].sort((a, b) => a.count - b.count);
       // Discard old hit targets immediately when a filter changes, before redraw.
       visiblePins = [];
       hover(null);
