@@ -1,4 +1,4 @@
-import { createGlobe } from './globe.js?v=clear-globe-1';
+import { createGlobe } from './globe.js?v=spread-pins-1';
 import { getStations, recordStationClick, loadRegionalDirectory } from './radio-directory.js?v=glass-player-1';
 import { loadLocationBounds, getMapLocation, isMappable } from './station-location.js?v=glass-player-1';
 import { loadTalkDirectory, getTalkStation, isTalkStation } from './talk-directory.js';
@@ -179,10 +179,10 @@ function moveNearby(direction) {
 }
 const globe = createGlobe($('globe'), {
   onBackgroundTap: () => setChromeHidden(!chromeHidden),
-  onSelect: (station) => {
+  onSelect: (station, {expanded = false} = {}) => {
     setChromeHidden(false);
     const key=locationKey(station), group=pinGroups.get(key);
-    if (group?.length>1) {
+    if (group?.length>1 && !expanded) {
       placeScope={key,label:locationLabel(station)};
       visibleCount=60;render();openStations();$('collection').scrollTop=0;
     } else playStation(station);
@@ -199,10 +199,10 @@ const globe = createGlobe($('globe'), {
       zoomLevel.setAttribute('aria-label',`Zoom ${view.zoom.toFixed(1)} times, maximum ${view.maxZoom} times`);
     }
   },
-  onHover: (station) => {
+  onHover: (station, {expanded = false} = {}) => {
     $('globe-tooltip').hidden = !station;
     if (station) {
-      const count=pinGroups.get(locationKey(station))?.length||1;
+      const count=expanded ? 1 : pinGroups.get(locationKey(station))?.length||1;
       $('globe-tooltip').textContent = [count>1?`${count} stations`:station.name,locationLabel(station),mapLocationNote(station)].filter(Boolean).join(' — ');
     }
   }
